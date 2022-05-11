@@ -1,0 +1,22 @@
+#!/bin/sh
+
+mkdir portrait landscape 2>/dev/null
+PORTRAITCOUNTER=0
+LANDSCAPECOUNTER=0
+for i in $@; do 
+	echo "$i"
+	DIMENSIONS=$(identify -format '%wx%h' "$i")
+	WIDTH=$(echo $DIMENSIONS | cut -f1 -d 'x')
+	HEIGHT=$(echo $DIMENSIONS | cut -f2 -d 'x')
+	if [ $WIDTH -lt $HEIGHT ]; then 
+		echo "mv $i portrait"
+		mv "$i" portrait
+		PORTRAITCOUNTER=$((PORTRAITCOUNTER+1))
+	else
+		echo "mv $i landscape"
+		mv "$i" landscape
+		LANDSCAPECOUNTER=$((LANDSCAPECOUNTER+1))
+	fi
+done
+echo "$PORTRAITCOUNTER portrait images"
+echo "$LANDSCAPECOUNTER landscape images"

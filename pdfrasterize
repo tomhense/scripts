@@ -1,0 +1,44 @@
+#!/bin/sh
+
+if [ $# != 3 ]; then # If too many / too few paraters are given, print help
+	echo "Usage: $0 fromfile.pdf tofile.pdf dpi" >&2
+	echo 'This makes a rasterized version of fromfile.pdf, optimizes it with ghostscript and outputs into into tofile.pdf' >&2
+	exit 1
+fi
+if [ ! -f "$1" ]; then # Check input file paramter
+	echo 'Inputfile does not exist' >&2
+	exit 1
+fi
+if [ -f "$2" ]; then # Check output file paramter
+	echo 'Outputfile does already exist' >&2
+	exit 1
+fi
+if ! echo -n "$3" | grep -Pq '^\d+$'; then # Check dpi paramter
+	echo 'DPI Paramter is not a number' >&2
+	exit 1
+fi
+
+# Create temporary file
+TMPFILE="$(mktemp --suffix=.pdf)"
+
+# Rasterize image with image magick
+echo "Creating raster version... (in $TMPFILE)"
+if ! convert -render -density "$3" "$1" "$TMPFILE"; then
+	echo 'Imagemagick error' >&2
+	exit 1
+fi
+
+# Shrink pdf with ghostscript
+echo "Optimizing to shrink pdf file..."
+if ! gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dNOPAUSE -dQUIET -dBATCH -sOutputFile="$2" "$TMPFILE"; then
+	echo 'Ghostscript error' >&2
+	exit 1
+fi
+
+echo "Deleting $TMPFILE ..."
+if ! env rm "$TMPFILE"; then
+	echo "Error while removing temporary file $TMPFILE" >&2
+	exit 1
+fi
+
+echo 'Finished without errors'

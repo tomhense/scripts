@@ -1,0 +1,45 @@
+#!/bin/python3
+from tempfile import TemporaryDirectory
+import argparse
+import subprocess as sp
+import os
+from shutil import which
+
+def createParser():
+	parser = argparse.ArgumentParser(description="Slice a part of a pdf")
+	parser.add_argument("-f", dest="firstPage", type=int, help="First page to extract")
+	parser.add_argument("-l", dest="lastPage", type=int, help="Last page to extract")
+	parser.add_argument("input", type=str, help="Input file")
+	parser.add_argument("output", type=str, help="Output file")
+	return parser
+
+def checkIfToolsInstalled():
+	return which("pdfseparate") != None and which("pdfunite") != None
+		
+def slice(inputFile, outputFile, firstPage, lastPage):
+	sliceCommand = ["pdfseparate"]
+	if firstPage:
+		sliceCommand += ["-f", str(firstPage)]
+	if lastPage:
+		sliceCommand += ["-l", str(lastPage)]
+	sliceCommand.append(inputFile)
+
+	with TemporaryDirectory() as tempDir:
+		sliceCommand.append(os.path.join(tempDir, "%05d.pdf"))
+		sp.run(sliceCommand)
+
+		pdfFiles = os.listdir(path=tempDir)
+		pdfFiles.sort()
+		pdfFiles = list(map(lambda x: os.path.join(tempDir, x), pdfFiles))
+		
+		sp.run(("pdfunite", *pdfFiles, outputFile))
+
+
+if __name__ == "__main__":
+	parser = createParser()
+	args = parser.parse_args()
+	if not checkIfToolsInstalled():
+		print("pdfseperate or pdfmerge not found, please install these to use this program")
+		exit(1)
+	print(args)
+	slice(args.input, args.output, args.firstPage, args.lastPage)

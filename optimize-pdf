@@ -1,0 +1,26 @@
+#!/bin/sh
+
+INPUTFILE="$1"
+
+if [ $# != 1 ]; then
+	echo 'Invalid number of arguments given' >&2
+	exit 1
+fi
+if ! echo "$INPUTFILE" | grep -q '.pdf'; then
+	echo 'File is not a pdf file' >&2
+	exit 1
+fi
+if ! [ -f "$INPUTFILE" ]; then
+	echo "Error '$INPUTFILE' does not exist" >&2
+	exit 1
+fi
+
+OUTPUTFILE="$(mktemp --suffix .pdf)"
+
+if gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dNOPAUSE -dQUIET -dBATCH -sOutputFile="$OUTPUTFILE" "$INPUTFILE"; then
+	mv -f "$OUTPUTFILE" "$INPUTFILE"
+	echo "Successfully compressed '$INPUTFILE'"
+else
+	echo "Error encountered while compressing '$INPUTFILE'" >&2
+	exit 1
+fi

@@ -1,0 +1,118 @@
+#!/bin/python3
+import curses
+import time
+import math
+import argparse
+
+vertices = [ [-1,-1,-1], [-1,1,-1], [1,1,-1], [1,-1,-1], [-1,-1,1], [-1,1,1], [1,1,1], [1,-1,1] ]
+edges = [ [0,1],[1,2],[2,3],[3,0],  [4,5],[5,6],[6,7],[7,4],  [0,4],[1,5],[2,6],[3,7] ]
+
+def chooseChar(angle):
+	chars = ('/','-','\\','|','/','-','\\','|')
+	angle += 2.5*math.pi - 0.125
+	angle %= math.pi*2
+	for i in range(8):
+		if math.pi*i/4 < angle and angle < math.pi*(i+1)/4:
+			return chars[i]
+
+def drawLine(window, x0, y0, x1, y1): # Bresenham's line algorithm
+		char = chooseChar(math.atan2(y1-y0, x1-x0))
+		dx = abs(x1 - x0)
+		dy = abs(y1 - y0)
+		x, y = x0, y0
+		sx = -1 if x0 > x1 else 1
+		sy = -1 if y0 > y1 else 1
+		if dx > dy:
+			err = dx / 2.0
+			while x != x1:
+				window.addch(y, x, char)
+				err -= dy
+				if err < 0:
+					y += sy
+					err += dx
+				x += sx
+		else:
+			err = dy / 2.0
+			while y != y1:
+				window.addch(y, x, char)
+				err -= dx
+				if err < 0:
+					x += sx
+					err += dy
+				y += sy
+
+def drawEdges(window):
+	height, width = stdscr.getmaxyx()
+	for e1, e2 in edges:
+		v1 = vertices[e1]
+		v2 = vertices[e2]
+		xOff = width / 2
+		yOff = height / 2
+		scale = min(width/2, height) * 0.28
+		drawLine(
+			window, 
+			int(v1[1]*2*scale+xOff), 
+			int(v1[2]*scale+yOff), 
+			int(v2[1]*2*scale+xOff), 
+			int(v2[2]*scale+yOff)
+		)
+
+def rotateX(value):
+	for i in range(len(vertices)):
+		newAngle = math.atan2(vertices[i][2], vertices[i][1]) + value;
+		distance = math.sqrt(vertices[i][1] ** 2 + vertices[i][2] ** 2)
+		vertices[i][1] = distance * math.cos(newAngle)
+		vertices[i][2] = distance * math.sin(newAngle)
+		
+def rotateY(value):
+	for i in range(len(vertices)):
+		newAngle = math.atan2(vertices[i][2], vertices[i][0]) + value;
+		distance = math.sqrt(vertices[i][0] ** 2 + vertices[i][2] ** 2)
+		vertices[i][0] = distance * math.cos(newAngle)
+		vertices[i][2] = distance * math.sin(newAngle)
+
+def rotateZ(value):
+	for i in range(len(vertices)):
+		newAngle = math.atan2(vertices[i][1], vertices[i][0]) + value;
+		distance = math.sqrt(vertices[i][0] ** 2 + vertices[i][1] ** 2)
+		vertices[i][0] = distance * math.cos(newAngle)
+		vertices[i][1] = distance * math.sin(newAngle)
+
+def main(stdscr, auto=False, fps=60):
+	while True:
+		key = stdscr.getch()
+		if key == 27: # ESC
+			return
+
+		rotSpeed = 1 / 128
+		if key == curses.KEY_LEFT:
+			rotateZ(2*math.pi*rotSpeed)
+		elif key == curses.KEY_RIGHT:
+			rotateZ(-2*math.pi*rotSpeed)
+		elif key == curses.KEY_UP:
+			rotateY(2*math.pi*rotSpeed)
+		elif key == curses.KEY_DOWN:
+			rotateY(-2*math.pi*rotSpeed)
+
+		if auto:
+			rotSpeed = 1 / 512
+			rotateY(2*math.pi*rotSpeed / 2)
+			rotateZ(2*math.pi*rotSpeed)
+
+		stdscr.clear()
+		drawEdges(stdscr)
+		stdscr.refresh()
+		time.sleep(1 / fps)
+
+if __name__ == "__main__":
+	parser = argparse.ArgumentParser()
+	parser.add_argument("--auto", "-a", action="store_true", help="Rotate automatically")
+	args = parser.parse_args()
+
+	stdscr = curses.initscr()
+	curses.noecho()
+	curses.cbreak()
+	stdscr.nodelay(True)
+	stdscr.keypad(True)
+	curses.wrapper(main, args.auto)
+

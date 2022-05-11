@@ -1,0 +1,38 @@
+#!/bin/python3
+from urllib.parse import quote, unquote
+import sys
+import argparse
+
+def createParser():
+	parser = argparse.ArgumentParser(description="Quote/Unquote encoded url strings")
+	parser.add_argument("--decode", "-d", action="store_true", help="Decode stdin and output to stdout")
+	parser.add_argument("--verbose", action="store_true", help="Be verbose")
+	return parser
+
+def eprint(*args, **kwargs):
+	print(*args, file=sys.stderr, **kwargs)
+
+if __name__ == "__main__":
+	parser = createParser()
+	args = parser.parse_args()
+
+	# Try reading input from stdin
+	try:
+		input = sys.stdin.read()
+	except err:
+		eprint("Could not read from stdin")
+		if args.verbose:
+			eprint(err)
+		exit(1)
+
+	# Quote/Unquote input data and output it to stdout
+	try:
+		if args.decode:
+			print(unquote(input))
+		else:
+			print(quote(input))
+	except err:
+		eprint("Could quote/unquote")
+		if args.verbose:
+			eprint(err)
+		exit(1)

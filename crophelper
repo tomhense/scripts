@@ -1,0 +1,41 @@
+#!/bin/sh
+# https://ffmpeg.org/ffmpeg-filters.html#cropdetect
+
+help() {
+	echo -e 'Use the ffmpeg cropdetect function on a video file\n'
+	echo -e "Usage: $0 [-ss STARTTIME] [-h] INPUT\n"
+	echo 'Options:'
+	echo -e '-s STARTTIME\tTimestamp to run the cropdetect on (format HH:MM:SS.SSSS)'
+	echo -e '-h\tDisplay this help message'
+	exit 0
+}
+
+if [ "$#" = 0 ]; then
+	help
+fi
+
+STARTTIME='0'
+while getopts ":s:h" OPT; do
+	case $OPT in
+		h)
+			help;;
+		s)
+			STARTTIME="$OPTARG";;
+		\?)
+			echo "Invalid option: -$OPTARG" >&2
+			help;;
+	esac
+done
+
+# Get the argument behind the already parsed arguments
+shift $((OPTIND-1))
+INPUT="$1"
+
+# Show error if given file does not exit
+if [ ! -f "$INPUT" ]; then
+	echo 'Input file does not exist' >&2
+	exit 1
+fi
+
+ffmpeg -ss "$STARTTIME" -i "$INPUT" -t 1 -vf cropdetect -f null - 2>&1 | awk '/crop/ { print $NF }' | tail -1
+

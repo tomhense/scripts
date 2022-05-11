@@ -1,0 +1,17 @@
+#!/bin/sh
+
+KDE_CONNECT='/bin/kdeconnect-cli'
+DEVICES="$("$KDE_CONNECT" --list-available --name-only)"
+DEVICES_COUNT=$(echo "$DEVICES" | wc -l)
+
+if [ $DEVICES_COUNT = 0 ]; then
+	echo 'No devices connected' >&2
+	exit 2
+#elif [ $DEVICES_COUNT = 1 ]; then
+#	NAME="${DEVICES[0]}"
+#	"$KDE_CONNECT" --name "$NAME" $@
+else
+	NAME=$(echo "$DEVICES" | fzf)
+	"$KDE_CONNECT" --name "$NAME" "$@"
+fi
+

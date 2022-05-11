@@ -1,0 +1,61 @@
+#!/bin/sh
+
+# Help
+if [ $# = 0 ]; then
+	echo -e 'Resize input images which are larger than given size to given size while preserving the aspect ratio.\n'
+	echo -e "Usage: $0 [-y] -w WIDTH -h HEIGHT files [files ...]\n"
+	echo 'Options:'
+	echo -e '-w WIDTH\tMaximum width of image'
+	echo -e '-h HEIGHT\tMaximum height of image'
+	echo -e '-y\tDo not ask for confirmation'
+	exit 0
+fi
+
+# Get options (except files)
+while getopts ":w:h:y" OPT; do
+	case $OPT in
+		w)
+			MAXW=$OPTARG;;
+		h)
+			MAXH=$OPTARG;;
+		y)
+			NOCONFIRM=1;;
+		\?)
+			echo "Invalid option: -$OPTARG" >&2;;
+	esac
+done
+
+# Check if width and height are valid
+if ! echo "$MAXW $MAXH" | grep -Pq '^\d+ \d+$'; then
+	echo 'width and height have to be integers' >&2
+	exit 1
+fi
+
+# Check for user confirmation
+if [ ! $NOCONFIRM = 1 ]; then
+	read -p "This will resize $(($# - OPTIND + 1)) images. Are you sure? [y/n] " -n 1 -r
+	echo
+	if [[ ! "$REPLY" =~ ^[Yy] ]]; then
+		echo 'Aborted' 2>&1
+		exit 0
+	fi
+fi
+
+# Get files from arguments
+shift $((OPTIND-1))
+for FILE in "$@"; do
+	if [ ! -f "$FILE" ]; then # Check if file exists
+		echo "File $FILE does not exist" >&2
+	else
+		# Resize only if input image is larger and keep aspect ratio
+		if convert "$FILE" -resize ${MAXW}x${MAXH}\> "/tmp/$(basename "$FILE")"; then
+			mv "/tmp/$(basename "$FILE")" "$FILE"
+			echo "Resized $FILE"
+		else
+			echo "Error occured while resizing $FILE" >&2
+			command rm "/tmp/$(basename "$FILE")"
+			exit 1
+		fi
+	fi
+done
+

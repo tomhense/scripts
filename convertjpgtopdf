@@ -1,0 +1,10 @@
+#!/bin/sh
+
+TEMPFOLDER="$(mktemp -d)"
+echo "Tempfolder $TEMPFOLDER"
+for i in "$@"; do
+	echo "Converting $i"
+	convert "$i" "$TEMPFOLDER/${i%.jpg}.pdf"
+done
+pdfunite $TEMPFOLDER/*.pdf united.pdf
+rm -drf "$TEMPFOLDER"

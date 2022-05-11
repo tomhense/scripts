@@ -1,0 +1,116 @@
+#!/bin/sh
+
+# Show help message
+help() {
+	echo -e 'Apply a Konsole profile\n'
+	echo -e "Usage: $0 [-l] [-h] [-s] [profile]\n"
+	echo 'Options:'
+	echo -e '-l\tList available konsole profiles and exit'
+	echo -e '-l\tShow help message'
+	echo -e '-s\tBe silent'
+	exit 0
+}
+
+# If no arguments were given show help
+if [ "$#" = 0 ]; then
+	help
+fi
+
+# Get options except profile name
+DO_LIST_PROFILES=0 # If profiles should be listed
+SILENT=0 # If program output anything
+while getopts 'lhs' OPT; do
+	case $OPT in
+		l)
+			DO_LIST_PROFILES=1;;
+		h)
+			help;;
+		s)
+			SILENT=1;;
+		\?)
+			echo "Invalid option: -$OPTARG" >&2
+			help;;
+	esac
+done
+
+# Get profile name from arguments
+shift $((OPTIND-1))
+PROFILE="$1"
+
+# Get windows from dbus and store as array (DEPRECATED)
+#WINDOW_LIST=($(qdbus org.kde.konsole /Windows org.freedesktop.DBus.Introspectable.Introspect | grep -Eo '<node name="([0-9]+)"/>' | grep -Eo '[0-9]+'))
+#WINDOW="${WINDOW_LIST[0]}"
+
+# Use environment variable to get window
+WINDOW="$KONSOLE_DBUS_WINDOW"
+if [ "$WINDOW" = '' ]; then
+	if [ $SILENT = 0 ]; then
+		echo 'Could not get window id from environment' >&2
+	fi
+	exit 1
+fi
+
+
+if qdbus org.kde.konsole >/dev/null 2>&1; then
+	DBUS_SERVICE='org.kde.konsole'
+else
+	if ! KONSOLE_PID="$(pgrep konsole | head -n1)"; then
+		echo 'No PID for konsole found' >&2
+		exit 1
+	fi
+	DBUS_SERVICE="org.kde.konsole-$KONSOLE_PID"
+fi
+
+
+# Get profiles from dbus konsole window and store as array
+PROFILES_LIST=("$(qdbus "$DBUS_SERVICE" "$WINDOW" org.kde.konsole.Window.profileList)")
+
+listProfiles() { # List available profiles
+	echo -e "Available profiles:\n$PROFILES_LIST"
+}
+
+if [ $DO_LIST_PROFILES = 1 ]; then
+	listProfiles
+	exit 0
+fi
+
+if [ "$PROFILE" = '' ] || ! echo "$PROFILES_LIST" | grep -q "^${PROFILE}$"; then
+	if [ $SILENT = 0 ]; then
+		echo -e 'Specified Konsole profile does not exist\n' >&2
+		listProfiles >&2
+	fi
+	exit 1
+fi
+
+# Set default profile (only has to be applied to one window)
+CUR_WINDOW_DEFAULT_PROFILE="$(qdbus "$DBUS_SERVICE" "$WINDOW" org.kde.konsole.Window.defaultProfile)"
+if [ "$CUR_WINDOW_DEFAULT_PROFILE" != "$PROFILE" ]; then
+	qdbus "$DBUS_SERVICE" "$WINDOW" org.kde.konsole.Window.setDefaultProfile "$PROFILE"
+	if [ $SILENT = 0 ]; then
+		echo "Successfully applied profile to window"
+	fi
+else
+	if [ $SILENT = 0 ]; then
+		echo 'Window already has given profile applied' >&2
+	fi
+fi
+
+# Get sessions from dbus konsole window and store as array
+SESSION_ID_LIST=("$(qdbus "$DBUS_SERVICE" "$WINDOW" org.kde.konsole.Window.sessionList)")
+
+# Apply profile to all sessions
+for SESSION_ID in ${SESSION_ID_LIST[@]}; do
+	CUR_PROFILE="$(qdbus "$DBUS_SERVICE" "/Sessions/$SESSION_ID" org.kde.konsole.Session.profile)"
+	if [ "$CUR_PROFILE" != "$PROFILE" ]; then
+		qdbus "$DBUS_SERVICE" "/Sessions/$SESSION_ID" org.kde.konsole.Session.setProfile "$PROFILE"
+		if [ $SILENT = 0 ]; then
+			echo "Successfully applied profile to session $SESSION_ID"
+		fi
+	else
+		if [ $SILENT = 0 ]; then
+			echo "Session $SESSION_ID already has given profile applied" >&2
+		fi
+	fi
+done
+
+exit 0

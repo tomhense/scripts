@@ -1,0 +1,11 @@
+#!/bin/sh
+
+TEMPFOLDER='/tmp/pdfconv'
+mkdir "$TEMPFOLDER" 
+for i in "$@"; do
+	BASENAME="${i%.png}"
+	echo "Converting $BASENAME"
+	convert "$i" -quality 90 "$TEMPFOLDER/$BASENAME.jpg"
+	convert "$TEMPFOLDER/$BASENAME.jpg" "$BASENAME.pdf"
+done
+rm -drf "$TEMPFOLDER"

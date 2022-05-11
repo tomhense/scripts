@@ -1,0 +1,66 @@
+#!/bin/sh
+
+# Set gzip compression level
+export GZIP='-1'
+
+# Default output directory
+OUTPUT_DIR="$HOME"
+
+
+help() {
+	echo -e 'Open a video link on kodi server using youtube-dl\n'
+	echo -e "Usage: $0 [-o OUTPUT_DIR]\n"
+	echo 'Options:'
+	echo -e "-o OUTPUT_DIR\tOutput directory to create the backup file in (default is $OUTPUT_DIR)"
+	echo -e '-h\tDisplay this help message'
+	exit 0
+}
+
+while getopts ":o:h" OPT; do
+	case $OPT in
+		o)
+			OUTPUT_DIR=$OPTARG;;
+		h)
+			help;;
+		\?)
+			echo "Invalid option: -$OPTARG" >&2
+			help;;
+	esac
+done
+
+# Name of the backup
+BACKUP_FILE="${OUTPUT_DIR}/termux_backup_$(date +%Y-%m-%d).tar.gz"
+
+if [ -f "$HOME/$NAME" ]; then
+	echo "File $NAME already exists" >&2
+	exit 1
+fi
+
+# Save list of apt packages
+if apt-mark showmanual > "$HOME/aptlist.txt" 2>/dev/null; then
+	echo 'Successfully fetched a list of manually installed apt packages'
+else
+	echo 'Error occured while fetching a list of manually installed apt packages' >&2
+	exit 1
+fi
+
+# Save list of pip packages
+if pip list > "$HOME/piplist.txt" 2>/dev/null; then
+	echo 'Successfully fetched a list of manually installed pip packages'
+else
+	echo 'Error occured while fetching a list of manually installed pip packages' >&2
+	exit 1
+fi
+
+# Create the backup
+if tar -zcvf "$BACKUP_FILE" "$HOME/../home" "$HOME/../usr"; then
+	echo "Tar archive $BACKUP_FILE was created successfully"
+	
+	# The package lists are now stored in the backup file and not needed anymore
+	rm "$HOME/aptlist.txt" "$HOME/piplist.txt"
+	
+	exit 0
+else
+	echo "Error creating tar archive $BACKUP_FILE" >&2
+	exit 1
+fi

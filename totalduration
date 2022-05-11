@@ -1,0 +1,66 @@
+#!/bin/python3
+import sys
+import os.path
+import re
+import json
+import fileinput
+import subprocess as sp
+from shutil import which
+
+def eprint(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
+
+def getDuration(filePath):
+	if os.path.isfile(file):
+		ffprobeResult = sp.run(["ffprobe", "-hide_banner", "-print_format", "json", "-show_streams", file], capture_output=True, text=True)
+		if ffprobeResult.returncode == 0:
+			result = json.loads(ffprobeResult.stdout)
+
+			durations = []
+			for stream in result["streams"]:
+				if stream.get("duration"):
+					durations.append(float(stream["duration"]))
+				elif stream.get("tags") and stream.get("tags").get("DURATION"):
+					durations.append(strpTime(stream["tags"]["DURATION"]))
+				elif stream.get("tags") and stream.get("tags").get("duration"):
+					durations.append(strpTime(stream["tags"]["duration"]))
+
+			return max(durations)
+	return None
+
+def strpTime(durationStr): # Parse ffmpeg duration string HH:MM:SS.sssssssss
+	h, _, durationStr = durationStr.partition(":")
+	m, _, s = durationStr.partition(":")
+	return int(h)*60*60 + int(m)*60 + float(s)
+
+def formatSeconds(seconds):
+	milliSeconds = round((seconds % 1) * 100)
+	seconds = int(seconds)
+	minutes = int(seconds / 60)
+	seconds = seconds % 60
+	hours = int(minutes / 60)
+	minutes = minutes % 60
+	return f"{hours:02}:{minutes:02}:{seconds:02}.{milliSeconds}"
+
+
+if __name__ == "__main__":
+	if which("ffprobe") is None: # Check if ffprobe is installed
+		eprint("ffprobe was not found, please install it to use this script")
+		exit(1)
+
+	if 1 < len(sys.argv):
+		files = sys.argv[1:]
+	else:
+		files = fileinput.input()
+		files = map(lambda x: x.strip("\n"), files)
+
+	totalSeconds = 0
+	for file in files:
+		currentSecs = getDuration(file)
+		if currentSecs:
+			totalSeconds += currentSecs
+			print(f"{formatSeconds(currentSecs)}\t{file}")
+		else:
+			eprint(f"Could not process\t{file}")
+
+	print(f"\nTotal Duration: " + formatSeconds(totalSeconds))

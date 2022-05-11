@@ -1,0 +1,50 @@
+#!/bin/python3
+import sys
+import subprocess as sp
+
+dependenciesSet = set()
+
+def eprint(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
+
+def handlePackage(packageName):
+	result = sp.run(["pactree", "-u", packageName], capture_output=True)
+	if result.returncode == 0:
+		lines = result.stdout.decode().split("\n")
+		for packageName in lines:
+			dependenciesSet.add(packageName)
+	else:
+		eprint("ERROR: Error handling package", packageName)
+
+def handleGroup(groupName):
+	result = sp.run(["pacman", "-Qg", groupName], capture_output=True)
+	if result.returncode == 0:
+		lines = result.stdout.decode().split("\n")
+		for line in lines:
+			packageName = line.partition(" ")[2]
+			handlePackage(packageName)
+	else:
+		eprint("ERROR: Error handling group", groupName)
+
+def manualInstalledPackages():
+	result = sp.run(["pacman", "-Qe"], capture_output=True)
+	if result.returncode == 0:
+		lines = result.stdout.decode().split("\n")
+		packageNames = set()
+		for line in lines:
+			packageNames.add(line.partition(" ")[0])
+		return packageNames
+	else:
+		eprint("ERROR: Error listing manually installed packages")
+		return None
+
+if __name__ == "__main__":
+	groups = ["base-devel"]
+
+	for groupName in groups:
+		handleGroup(groupName)
+
+	selfInstalledPackages = list(manualInstalledPackages().difference(dependenciesSet))
+	selfInstalledPackages.sort()
+	for selfInstalledPackage in selfInstalledPackages:
+		print(selfInstalledPackage)

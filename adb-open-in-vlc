@@ -1,0 +1,28 @@
+#!/bin/sh
+
+INTENT_PACKAGE='org.videolan.vlc/org.videolan.vlc.gui.video.VideoPlayerActivity'
+INTENT_ACTION='android.intent.action.VIEW'
+
+openIntent() {
+	if [ "$1" = '' ]; then
+		echo 'No url given to openIntent function' >&2
+		exit 2
+	fi
+
+	if [ "$2" != '' ]; then # If serial paramater is given
+		adb -s "$2" shell am force-stop 'org.videolan.vlc' # Kill vlc
+		adb -s $2 shell am start -a $INTENT_ACTION -n $INTENT_PACKAGE -d "'$1'" >/dev/null
+	else
+		adb shell am force-stop 'org.videolan.vlc' # Kill vlc
+		adb shell am start -a $INTENT_ACTION -n $INTENT_PACKAGE -d "'$1'" >/dev/null
+	fi
+}
+
+if [ "$1" != '' ] && echo "$1" | grep -Pq '(http|ftp|https)://([\w_-]+(?:(?:\.[\w_-]+)+))([\w.,@?^=%&:/~+#-]*[\w@?^=%&/~+#-])?';  then
+	openIntent "$1" "$SERIAL"
+	echo 'Started vlc intent successfully'
+	exit 0
+else
+	echo 'Please specify a url as the argument' >&2
+	exit 2
+fi

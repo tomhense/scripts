@@ -1,0 +1,29 @@
+#!/bin/sh
+
+# Check if qdbus is installed
+command -v qdbus >/dev/null || ( echo 'Please install qdbus first' >&2; exit 1 )
+
+# The dbus endpoint to query
+service='org.freedesktop.portal.Desktop'
+method='/org/freedesktop/portal/desktop org.freedesktop.portal.Settings.Read'
+namespace='org.freedesktop.appearance'
+key='color-scheme'
+
+# Query the dbus endpoint
+returnval="$(qdbus $service $method $namespace $key)"
+
+# Check if query was successfully executed
+if [ $? != 0 ]; then
+	echo 'Error occured while querying qdbus' >&2
+	exit 1
+fi
+
+# Return light or dark depending on query response
+if [ "$returnval"  = '1' ]; then
+	echo -n 'dark'
+elif [ "$returnval" = '2' ]; then
+	echo -n 'light'
+else
+	echo 'Unknown query response' >&2
+	exit 1
+fi

@@ -1,0 +1,79 @@
+#!/bin/python3
+import lxml.html
+import lxml.etree
+import base64
+import re
+import os
+import argparse
+from urllib.parse import unquote
+
+controlChars = dict.fromkeys(range(32))
+controlChars.pop(ord("\n"))
+
+def sanitizeString(string):
+	return string.translate(controlChars)
+
+def recurse(root, keepScripts=False, keepImages=False):
+	for child in root.getchildren():
+		if child.tag == "img" and keepImages and child.get("src") != None:
+			src = unquote(child.get("src"))
+			if "base64" not in src and os.path.isfile(src):
+				extension = re.search(r"\.(.{3,4})$", src).groups()[0].upper()
+				encoded = "data:image/{};base64,".format(extension)
+				with open(src,"rb") as file:
+					encoded += base64.b64encode(file.read()).decode('ascii')
+				child.set("src", encoded)
+				print("Replaced image")
+
+		elif child.tag == "img" and not keepScripts:
+			root.remove(child)
+			print("Removed image")
+
+		elif child.tag == "link" and child.get("rel") == "stylesheet":
+			src = unquote(child.get("href"))
+			if os.path.isfile(src):
+				with open(src) as file:
+					style = lxml.etree.Element("style")
+					style.text = sanitizeString(file.read())
+					#style.text = file.read()
+				root.append(style)
+				print("Replaced stylesheet")
+
+		elif child.tag == "script" and keepScripts and child.get("src") != None:
+			src = unquote(child.get("src"))
+			if os.path.isfile(src):
+				with open(src) as file:
+					child.text = sanitizeString(file.read())
+					#child.text = file.read()
+				child.attrib.pop("src", None)
+				print("Replaced script")
+
+		elif child.tag == "script" and not keepScripts:
+			root.remove(child)
+			print("Removed script")
+
+		else: # Other tag
+			recurse(child, keepScripts)
+
+
+def main(filePath, keepScripts, keepImages):
+	filePath = os.path.abspath(filePath)
+	os.chdir(os.path.dirname(filePath))
+	fileName = os.path.basename(filePath)
+
+	with open(fileName, "r") as file:
+		html = lxml.html.parse(file)
+
+	recurse(html.getroot(), keepScripts, keepImages)
+
+	html.write("unified_page.html", encoding="utf8")
+
+if __name__ == "__main__":
+	parser = argparse.ArgumentParser()
+	parser.add_argument("filePath", type=str, help="Path to the html file which is to be unified")
+	parser.add_argument("-s", "--keep-scripts", action="store_true", help="Keep scripts")
+	parser.add_argument("-i", "--keep-images", action="store_true", help="Keep images")
+	args = parser.parse_args()
+	print(args)
+	main(args.filePath, args.keep_scripts, args.keep_images)
+	print("Unified the file successfully")

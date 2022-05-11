@@ -1,0 +1,24 @@
+#!/bin/sh
+
+# Maximum clipbord size in bytes
+
+if [ "$TERMUX_VERSION" ]; then # Termux
+	SIZE=$(termux-clipboard-get | wc -c)
+	MAX_SIZE=512
+else # Normal desktop
+	SIZE=$(xclip -o -selection clipboard | wc -c)
+	MAX_SIZE=2048
+fi
+
+if [ "$SIZE" -lt "$MAX_SIZE" ]; then
+	if [ "$TERMUX_VERSION" ]; then # Termux
+		termux-clipboard-get | qrencode -m 1 -t ANSI -o -
+	else # Normal desktop
+		xclip -o -selection clipboard | qrencode -m 2 -t PNG -o - | display -filter point -resize 1000x1000 - &
+	fi
+	exit 0
+else
+	echo "Clipboard content to large ${MAX_SIZE}B<" >&2
+	exit 1
+fi
+

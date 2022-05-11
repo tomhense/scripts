@@ -1,0 +1,18 @@
+#!/bin/sh
+FIREFOX_DIR="$HOME/.mozilla/firefox"
+
+# Prepend $FIREFOX_PROFILE for all entries that are not absolute paths
+# Second interal sed expression escapes the slashes from the path
+SED_COMMAND="s/^([^/])/$(echo $FIREFOX_DIR | sed 's/\//\\\//g')\/\1/g"
+PROFILE_DIR="$(grep -Po '(?<=Path=).+' "$FIREFOX_DIR/profiles.ini" | sed -E "$SED_COMMAND" | fzf)"
+
+if [ "$PROFILE_DIR" != '' ]; then
+	echo "Chose profile $PROFILE_DIR"
+	firefox --profile "$PROFILE_DIR" >/dev/null 2>&1 &
+	disown %1
+	exit 0
+else
+	echo 'Empty profile selection' >&2
+	exit 1
+fi
+

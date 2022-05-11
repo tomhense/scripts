@@ -1,0 +1,95 @@
+#!/bin/python3
+import json
+import os
+import sys
+import subprocess as sp
+import tempfile
+import argparse
+
+def errPrint(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
+
+def getDurationInMs(inputFile):
+	ffprobeResult = sp.run(["ffprobe", "-hide_banner", "-print_format", "json", "-show_streams", inputFile], capture_output=True, text=True)
+	if ffprobeResult.returncode == 0:
+		result = json.loads(ffprobeResult.stdout)
+		
+		if len(result["streams"]) > 0: # Return duration of longest stream
+			return max(map(lambda x: int(1000*float(x["duration"])), result["streams"]))
+	else:
+		return None
+
+def createChapterMetadata(timePosInMs, durationInMs, title):
+	return f"[CHAPTER]\nTIMEBASE=1/1000\nSTART={timePosInMs}\nEND={timePosInMs + durationInMs}\ntitle={title}\n\n"
+
+def mergeFiles(inputFiles, outputFile, metadata=None):
+	cwd = os.getcwd()
+	fileListFile = tempfile.NamedTemporaryFile(mode="w")
+	for inputFile in inputFiles:
+		inputFilePath = os.path.join(cwd, inputFile)
+		fileListFile.file.write(f"file '{inputFilePath}'\n")
+	fileListFile.flush()
+
+	if metadata == None:
+		returncode = sp.run(["ffmpeg", "-safe", "0" , "-f", "concat", "-i", fileListFile.name, 
+			"-c", "copy", outputFile]).returncode
+	else:
+		metadataFile = tempfile.NamedTemporaryFile(mode="w")
+		metadataFile.file.write(metadata)
+		metadataFile.flush()
+		returncode = sp.run(["ffmpeg", "-safe", "0" , "-f", "concat", "-i", fileListFile.name, 
+			"-i", metadataFile.name, "-map_metadata", "1", "-c", "copy", outputFile]).returncode
+		metadataFile.close()
+	
+	fileListFile.close()
+	return returncode
+
+def formatString(inputString, indexPos, inputFile):
+	inputString = inputString.replace("%f", inputFile.rpartition(".")[0])
+	inputString = inputString.replace("%i", f"{indexPos+1:03}")
+	return inputString
+
+def createParser():
+	parser = argparse.ArgumentParser(description="Join a list of audio/video files into one big file and create chapters corresponding to input files")
+	parser.add_argument("inputFiles", metavar="files", nargs="+", help="Input files")
+	parser.add_argument("-o", dest="outputFile", required=True, help="Output file")
+	parser.add_argument("-t", dest="chapterFormat", help="Name chapter after this template possible ssubstituion variables are:  %%f->filename  %%i->fileindex", default="%f")
+	parser.add_argument("-n", "--no-chapters", dest="createChapters", action="store_false", help="Do not create chapters, only merge files")
+	return parser
+
+if __name__ == "__main__":
+	parser = createParser()
+	args = parser.parse_args()
+
+	if os.path.isfile(args.outputFile):
+		errPrint("Output file already exists")
+		exit(1)
+
+	timePosInMs = 0 # Current position in outputfile in ms
+	metadata = ";FFMETADATA1\n" # Metadata string
+	for index, inputFile in enumerate(args.inputFiles):
+		if os.path.isfile(inputFile):
+			currentDurationInMs = getDurationInMs(inputFile)
+			if currentDurationInMs == None:
+				errPrint(f"Error occured whle getting duration of inputfile '{inputFile}'")
+				exit(1)
+
+			currentTitle = formatString(args.chapterFormat, index, inputFile)
+			currentMetadata = createChapterMetadata(timePosInMs, currentDurationInMs, currentTitle)
+			metadata += currentMetadata
+			timePosInMs += currentDurationInMs
+		else:
+			errPrint(f"Input file '{inputFile}' does not exist")
+			exit(1)
+	metadata = metadata.rstrip("\n")
+
+	print("Merging files...")
+	if args.createChapters:
+		mergeSuccess = mergeFiles(args.inputFiles, args.outputFile, metadata=metadata)
+	else:
+		mergeSuccess = mergeFiles(args.inputFiles, args.outputFile)
+	if mergeSuccess:
+		print("Successfully merged files")
+	else:
+		errPrint("There was an error while merging the files")
+

@@ -1,0 +1,70 @@
+#!/bin/sh
+
+# Define some constants
+STEAMAPPS="$HOME/.local/share/Steam/steamapps"
+UBOAT_STEAMID=494840
+UBOAT_GAME="${STEAMAPPS}/compatdata/${UBOAT_STEAMID}/pfx/drive_c/users/steamuser/AppData/LocalLow/Deep Water Studio/UBOAT"
+UBOAT_WORKSHOP="${STEAMAPPS}/workshop/content/${UBOAT_STEAMID}"
+UBOAT_MODLIST="${STEAMAPPS}/compatdata/${UBOAT_STEAMID}/pfx/drive_c/users/steamuser/AppData/LocalLow/Deep Water Studio/UBOAT/modlist.txt"
+
+# Help
+help() {
+	SCRIPT_NAME="$(basename "$0")"
+	echo 'Manage UBOAT steam game on linux'
+	echo "Usage: $SCRIPT_NAME [-h] [-s] [-c] [-m]"
+	echo 'Options:'
+	echo -e '-h\tShow this help'
+	echo -e '-s\tClear saves'
+	echo -e '-c\tClear caches'
+	echo -e '-m\tUpdate modlist'
+}
+
+# Ask the user to confirm something
+confirm() {
+	read -p "$1 (y/n)? "
+	if [[ "$REPLY" =~ ^[Yy] ]]; then
+		return 0
+	else
+		echo 'Aborted' >&2
+		return 1
+	fi
+}
+
+# If no options are given show help
+if [ "$#" = 0 ]; then
+	help
+	exit 0
+fi
+
+# Check if uboat is installed
+if [ ! -f "$UBOAT_GAME" ]; then
+	echo 'Uboat game is not installed' >&2
+	exit 1
+fi
+
+while getopts "hscm" OPT; do
+	case $OPT in
+		s)
+			if confirm 'Do you want to delete the saves'; then
+				env rm "$UBOAT_GAME"/Saves/*
+				echo 'Successfully cleared the saves'
+			fi;;
+		c)
+			if confirm 'Do you want to delete the caches'; then
+				env rm "$UBOAT_GAME"/Cache/*
+				env rm "$UBOAT_GAME"/Temp/*
+				echo 'Successfully cleared the caches'
+			fi;;
+		m)
+			if confirm 'Do you want to update the modlist'; then
+				ls "$UBOAT_WORKSHOP" | sed -E 's/^/steam:/' | tee "$UBOAT_MODLIST"
+				echo 'Successfully updated the modlist'
+			fi;;
+		h)
+			help;;
+		\?)
+			echo "Invalid option: -$OPTARG" >&2
+			help >&2
+			exit 1;;
+	esac
+done

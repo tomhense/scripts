@@ -1,0 +1,3 @@
+#!/bin/sh
+
+gzip -dc "$1" | inkscape -Dp --export-overwrite --export-type=pdf -o "${1%.svgz}.pdf"

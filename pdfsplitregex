@@ -1,0 +1,148 @@
+#!/bin/python3
+from shutil import which
+from tempfile import NamedTemporaryFile
+from concurrent.futures import ThreadPoolExecutor
+import subprocess
+import os
+import re
+import sys
+import shutil
+import argparse
+
+def eprint(*args, **kwargs):
+	print(*args, file=sys.stderr, **kwargs)
+
+def error(errorMsg):
+	eprint("ERROR:", errorMsg)
+	exit(1)
+
+def checkIfInstalled(program):
+	return which(program) is not None
+
+def searchPdf(filename, pattern, usePerlStyle=False):
+	flags = "-Pno" if usePerlStyle else "-no"
+	pdfGrep = subprocess.run(["pdfgrep", flags, pattern, filename], capture_output=True)
+
+	if pdfGrep.returncode != 0:
+		error(f"pdfgrep failed while seaching '{filename}'")
+
+	chapters = []
+	for line in pdfGrep.stdout.decode().split("\n"):
+		if line == "" or line == "\n":
+			continue
+		startPage, sep, textMatch = line.partition(":")
+		chapters.append({
+			"startPage": int(startPage),
+			"match": textMatch.strip(" "),
+		})
+	return chapters
+
+def qpdfSlicePdf(inputFilename, startPage, endPage, outputFilename):
+	qpdf = subprocess.run(["qpdf", inputFilename, "--pages", ".", f"{startPage}-{endPage}", "--", outputFilename])
+	if qpdf.returncode != 0:
+		error(f"qpdf failed while slicing '{outputFilename}'")
+
+def sanitizeFilename(filename):
+	badchars= re.compile(r'[^A-Za-z0-9_. ]+|^\.|\.$|^ | $|^$')
+	return badchars.sub('_', filename)
+
+def extractName(chapterMatch, pattern=None):
+	if pattern is None:
+		return sanitizeFilename(chapterMatch)
+	else:
+		match = re.search(pattern, chapterMatch)
+		if len(match.groups()) != 1:
+			error("Exactly one capture group needed for chapter name extraction")
+		else:
+			return sanitizeFilename(match.groups()[0])
+
+def processChapters(chapters):
+	for i in range(len(chapters)):
+		chapters[i]["endPage"] = None
+		if i+1 < len(chapters):
+			chapters[i]["endPage"] = chapters[i+1]["startPage"] - 1
+	return chapters
+
+def printChapters(chapters, chapterRegex=None):
+	for i, chapter in enumerate(chapters):
+		print(f"--- Chapter {i:03} ---")
+		print("Match:", chapter["match"])
+		if chapterRegex != None:
+			print("Chapter name from regex:", extractName(chapter["match"], chapterRegex))
+		print("Startpage:", chapter['startPage'])
+		print("Endpage:", "end" if chapter['endPage'] is None else chapter['endPage'])
+		print()
+
+def optimizePdf(inputFilename):
+	if not checkIfInstalled("gs"):
+		error("ghostscript is missing")
+	
+	with NamedTemporaryFile(suffix=".pdf") as tempfile:
+		print(tempfile.name)
+		ghostscript = subprocess.run(["gs", "-sDEVICE=pdfwrite", "-dCompatibilityLevel=1.4", "-dNOPAUSE", 
+			"-dQUIET", "-dBATCH", f"-sOutputFile={tempfile.name}", inputFilename])
+		if ghostscript.returncode == 0:
+			shutil.copy(tempfile.name, inputFilename)
+		else:
+			error(f"Ghostscript failed while optimizing pdf '{filename}'")
+
+def slicePdf(inputFile, chapters, outputTemplate, chapterRegex=None, optimize=False):
+	with ThreadPoolExecutor(max_workers=10) as tpe:
+		for i, chapter in enumerate(chapters):
+			startPage = chapter["startPage"] if chapter["startPage"] is not None else "1"
+			endPage = chapter["endPage"] if chapter["endPage"] is not None else "z"
+
+			# Determine output filename
+			outputName = outputTemplate + f"-{i+1:03}" # default output name
+			if chapterRegex:
+				outputName = extractName(chapter["match"], chapterRegex)
+			outputFilename = outputName + ".pdf"
+
+			# Check if file already exists
+			if os.path.isfile(outputFilename):
+				error("File already exists")
+			
+			# Finally slice the pdf
+			tpe.submit(qpdfSlicePdf, inputFile, startPage, endPage, outputFilename)
+
+			# Optimize the pdf
+			if optimize:
+				tpe.submit(optimizePdf, outputFilename)
+
+def createParser():
+	parser = argparse.ArgumentParser(description="Split pdf file into chapter files according to a given regex")
+	parser.add_argument("pattern", help="Regex pattern to search for")
+	parser.add_argument("input", help="Input file")
+	parser.add_argument("output", help="Output files template")
+	parser.add_argument("--first-chapter-at-doc-start", "-s", action="store_true", help="Ignore the first page marker of the first chapter and instead set it to the beginning of the input document")
+	parser.add_argument("--chapter-regex", help="Extract chapter name from match using this regex, has to contain exactly one capture group")
+	parser.add_argument("--optimize", "-O", action="store_true", help="Optimize the output files using ghostscript")
+	parser.add_argument("-P",dest="use_perl_style", action="store_true", help="Use Perl style regex")
+	return parser
+
+if __name__ == "__main__":
+	if not checkIfInstalled("pdfgrep"):
+		error("pdfgrep is missing")
+	if not checkIfInstalled("qpdf"):
+		error("qpdf is missing")
+
+	parser = createParser()
+	args = parser.parse_args()
+
+	# Extract chapters from input file
+	chapters = searchPdf(args.input, args.pattern, args.use_perl_style)
+	chapters = processChapters(chapters)
+	if args.first_chapter_at_doc_start:
+		chapters[0]["startPage"] = 1
+	
+	# Ask the user for confirmation
+	printChapters(chapters, chapterRegex=args.chapter_regex)
+	if input("Do you wanna proceed (y/n)? ").lower() != "y":
+		error("Aborted by user")
+	
+	# Slice the pdf
+	slicePdf(args.input, chapters, args.output, chapterRegex=args.chapter_regex, optimize=args.optimize)
+	print("Successfully sliced the input file into chapters")
+
+
+

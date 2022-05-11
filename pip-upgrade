@@ -1,0 +1,20 @@
+#!/bin/sh
+
+if [ "$USER" = 'root' ]; then
+	echo 'This script can not be run as root, please execute it as a normal user!' >&2
+	exit 1
+fi
+
+PACKAGES=( $(pip list -o | awk 'NR > 2 { print $1 }') )
+PACKAGES_LENGTH=${#PACKAGES}
+
+if [ "$PACKAGES_LENGTH" -gt 0 ]; then
+	echo "Upgrading $PACKAGES_LENGTH packges"
+
+	for PACKAGE in $PACKAGES; do
+		echo "Upgrading $PACKAGE"
+		pip install --upgrade --user "$PACKAGE" >/dev/null
+	done
+else
+	echo 'No packages to upgrade!'
+fi

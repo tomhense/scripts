@@ -1,0 +1,73 @@
+#!/bin/sh
+
+# Default MIRROR_COUNT
+MIRROR_COUNT=20
+
+# Default location to save mirrorlist
+MIRRORLIST_OUTPUT='/etc/pacman.d/mirrorlist'
+
+# Help
+help() {
+	echo -e 'Generate a pacman mirrorlist and save it'
+	echo -e "Usage: $0 [-h] [-l length] [-c country-code] [-s]\n"
+	echo 'Options:'
+	echo -e '-l length\tHow many mirrors to pick'
+	echo -e '-c country-code\tTwo letter country codes seperated by comma to in which the mirrors have to be located'
+	echo -e '-h\tShow this help'
+	echo -e "-s\tOutput to stdout instead of $MIRRORLIST_OUTPUT"
+}
+
+# Parse cli options
+while getopts "l:c:sh" OPT; do
+	case $OPT in
+		c)
+			COUNTRY_CODES="$OPTARG";;
+		l)
+			MIRROR_COUNT="$OPTARG";;
+		s)
+			MIRRORLIST_OUTPUT='-';;
+		h)
+			help
+			exit 0;;
+		\?)
+			echo "Invalid option: -$OPTARG" >&2
+			help >&2
+			exit 1;;
+	esac
+done
+
+# Check if MIRROR_COUNT is valid
+if ! echo -n "$MIRROR_COUNT" | grep -Pq '^\d+$'; then
+	echo 'Invalid mirror count parameter given' >&2
+	exit 1
+fi
+
+# Generate a request url from the archlinux mirrorlist
+MIRROR_LIST_URL="https://archlinux.org/mirrorlist/?use_mirror_status=on"
+if [ "$COUNTRY_CODES" != '' ]; then
+	IFS=','
+	for COUNTRY_CODE in "$COUNTRY_CODES"; do
+		if echo -n "$COUNTRY_CODE" | grep -Pq '^[A-Z]{2}$'; then # Check if COUNTRY_CODE is valid
+			MIRROR_LIST_URL="${MIRROR_LIST_URL}&country=${COUNTRY_CODE}"
+		else
+			echo 'Error invalid country code provided' >&2
+			exit 1
+		fi
+	done
+fi
+
+# Get the mirrors and rank them
+if CURL_OUTPUT="$(curl -s "$MIRROR_LIST_URL")"; then
+	PICKED_MIRRORS="$(echo "$CURL_OUTPUT" | sed -e 's/^#Server/Server/' -e '/^#/d' | rankmirrors -n "$MIRROR_COUNT" - )"
+else
+	echo 'Something went wrong while acccessing arch mirrorlist, curl response:' >&2
+	echo "$CURL_OUTPUT" >&2
+	exit 1
+fi
+
+# Save the mirrorlist (or output to stdout)
+if [ "$MIRRORLIST_OUTPUT" = '-' ]; then
+	echo "$PICKED_MIRRORS" # Output to stdout
+else
+	echo "$PICKED_MIRRORS" | sudo tee "$MIRRORLIST_OUTPUT" # Save to $MIRRORLIST_OUTPUT
+fi

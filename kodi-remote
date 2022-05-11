@@ -1,0 +1,62 @@
+#!/bin/sh
+
+# Default host and port
+HOST='myhost' 
+PORT='8080'
+
+
+help() {
+	echo -e 'Open a video link on kodi server using youtube-dl\n'
+	echo -e "Usage: $0 [-h HOST] [-p PORT] url\n"
+	echo 'Options:'
+	echo -e '-h HOST\tIP of Kodi server'
+	echo -e '-p POST\tPort of the kodi webinterface to conenct to'
+	exit 0
+}
+
+if [ "$#" = 0 ]; then
+	help
+fi
+
+while getopts ":h:p:" OPT; do
+	case $OPT in
+		h)
+			HOST=$OPTARG;;
+		p)
+			PORT=$OPTARG;;
+		\?)
+			echo "Invalid option: -$OPTARG" >&2
+			help;;
+	esac
+done
+
+# Get the url behind the already parsed arguments
+shift $((OPTIND-1))
+URL="$1"
+
+# Show error if no url was given
+if [ "$URL" = '' ]; then
+	echo 'No url given' >&2
+	exit 1
+fi
+
+# Extract the video source url from given url
+if VID_URL="$(youtube-dl -g "$URL")"; then
+	# Extraction was successfull
+	echo "Playing $VID_URL"
+
+	# Send request to kodi server to display the video source url
+	if curl -s --data-binary '{"jsonrpc":"2.0","id":"1","method":"Player.Open","params":{"item":{"file":"'"${VID_URL}"'"}}}' -H 'content-type: application/json;' "http://${HOST}:{$PORT}/jsonrpc}"; then
+		# Request was send Successfully
+		echo "Successfully send request to host $HOST:$PORT"
+		exit 0
+	else
+		# Request was not send successfully, show error
+		echo "Sending request to host $HOST:$PORT failed!" >&2
+		exit 1
+	fi
+else
+	# Extraction was not successfull, show error
+	echo "Checking link $URL failed" >&2
+	exit 1
+fi

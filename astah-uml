@@ -1,0 +1,17 @@
+#!/bin/sh
+
+export _JAVA_OPTIONS="-Dawt.useSystemAAFontSettings=on -Dglass.gtk.uiScale=2.0 -Dsun.java2d.uiScale=2"
+export GDK_SCALE=2
+export JAVA_HOME="/usr/lib/jvm/java-8-openjdk"
+
+ASTAH_FOLDER="$HOME/astah_uml"
+
+if [ ! -d "$ASTAH_FOLDER" ]; then
+	echo "Astah could not be found at path '$ASTAH_FOLDER'" >&2
+	exit 1
+fi
+if [ ! -d "$JAVA_HOME" ]; then
+	echo 'Java 8 could not be found' >&2
+fi
+
+"$JAVA_HOME/jre/bin/java" -jar "$ASTAH_FOLDER/astah-uml.jar" 

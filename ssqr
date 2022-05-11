@@ -1,0 +1,8 @@
+#!/bin/sh
+
+IMG='/tmp/screenshot.jpg'
+spectacle -b -r -n -o "$IMG" >/dev/null 2>&1
+TEXT="$(zbarimg -q "$IMG")"
+echo $TEXT
+echo $TEXT | xclip -selection clipboard
+rm -f "$IMG"
