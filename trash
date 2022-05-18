@@ -4,7 +4,7 @@ if [ "$USER" = 'root' ]; then
 	echo 'Do not run this script as root' >&2
 	exit 1
 fi
-if command -v 'kioclient5' >/dev/null; then
+if ! command -v 'kioclient5' >/dev/null; then
 	echo 'kioclient5 is not installed' >&2
 	exit 1
 fi
