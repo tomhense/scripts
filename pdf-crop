@@ -79,7 +79,7 @@ if [ ! -f "$INPUT_FILE" ]; then
 fi
 
 # If output file exists ask to if it should be overridden
-if [ ! -f "$OUTPUT_FILE" ]; then
+if [ -f "$OUTPUT_FILE" ]; then
 	read -p "File '$OUTPUT_FILE' already exists, override? (y/n) "
     if [[ ! "$REPLY" =~ ^[Yy] ]]; then
 		exit 0
