@@ -1,0 +1,110 @@
+#!/bin/sh
+
+checkValidPercent() {
+	echo -n "$1" | grep -Pq '^\d+$' && [ "$1" -ge 0 ] && [ "$1" -le 100 ]
+}
+
+help() {
+	echo "Usage $(basename "$0") [-l] [-r] [-t] [-b] [-p]"
+	echo -e 'Options:'
+	echo -e '-h	Show this help'
+	echo -e '-l	Left margin in percent to corp (default 0)'
+	echo -e '-r	Right margin in percent to crop (default 0)'
+	echo -e '-t	Top margin in percent to crop (default 0)'
+	echo -e '-b	Bottom margin in percent to crop (default 0)'
+	echo -e '-p	The page to examine for the page size (default 1)'
+}
+
+# Parse cli arguments
+CROP_LEFT_PERCENT=0
+CROP_RIGHT_PERCENT=0
+CROP_TOP_PERCENT=0
+CROP_BOTTOM_PERCENT=0
+EXAMINE_PAGE=1
+while getopts 'hl:r:t:b:p' OPT; do
+	case $OPT in
+		l)
+			CROP_LEFT_PERCENT="$OPTARG";;
+		r)
+			CROP_RIGHT_PERCENT="$OPTARG";;
+		t)
+			CROP_TOP_PERCENT="$OPTARG";;
+		b)
+			CROP_BOTTOM_PERCENT="$OPTARG";;
+		p)
+			EXAMINE_PAGE="$OPTARG";;
+		h)
+			showHelp # Show help
+			exit 0;;
+		\?)
+			echo "Invalid option -$OPTARG" >&2
+			showHelp
+			exit 1;;
+	esac
+done
+shift $((OPTIND-1))
+if [ $# -lt 2 ]; then
+	echo 'Missing arguments' >&2
+	exit 1
+fi
+INPUT_FILE="$1"
+OUTPUT_FILE="$2"
+
+# Check that ghostscript and pdfinfo are installed
+if ! command -v gs >/dev/null; then
+	echo 'ERROR: Ghostscript is missing, please install it first' >&2
+	exit 1
+fi
+if ! command -v pdfinfo >/dev/null; then
+	echo 'ERROR: Ghostscript is missing, please install it first' >&2
+	exit 1
+fi
+
+# Check that EXAMINE_PAGE is a number
+if ! echo -n "$EXAMINE_PAGE" | grep -Pq '^\d+$'; then
+	echo 'ERROR: Incorrect page number'
+	exit 1
+fi
+
+# Check that margins are correct
+if ! { checkValidPercent "$CROP_LEFT_PERCENT" && checkValidPercent "$CROP_RIGHT_PERCENT" && checkValidPercent "$CROP_TOP_PERCENT" && checkValidPercent "$CROP_BOTTOM_PERCENT"; }; then
+	echo 'ERROR: Incorrect margin' >&2
+	exit 1
+fi
+
+# Check that input file exists
+if [ ! -f "$INPUT_FILE" ]; then
+	echo 'ERROR: Input file does not exist' >&2
+	exit 1
+fi
+
+# If output file exists ask to if it should be overridden
+if [ ! -f "$OUTPUT_FILE" ]; then
+	read -p "File '$OUTPUT_FILE' already exists, override? (y/n) "
+    if [[ ! "$REPLY" =~ ^[Yy] ]]; then
+		exit 0
+	fi
+fi
+
+# Determine pdf page size
+TEMP="$(pdfinfo -f "$EXAMINE_PAGE" "$INPUT_FILE" | grep 'Page size:')"
+WIDTH_PTS="$(echo -n "$TEMP" | awk '{print $3}')"
+HEIGHT_PTS="$(echo -n "$TEMP" | awk '{print $5}')"
+
+# Check if page size is valid
+if ! echo -n "$WIDTH_PTS|$HEIGHT_PTS" | grep -qP '^\d+(\.\d+)?|\d+(\.\d+)?$'; then
+	echo 'ERROR: Failed to determine page size' >&2
+	exit 1
+fi
+
+# Calculate crop margins
+CROP_LEFT_PTS="$(bc <<< "scale=3; $CROP_LEFT_PERCENT /100 * $WIDTH_PTS")"
+CROP_BOTTOM_PTS="$(bc <<< "scale=3; $CROP_BOTTOM_PERCENT /100 * $HEIGHT_PTS")"
+CROP_WIDTH_PTS="$(bc <<< "scale=3; $WIDTH_PTS - $CROP_RIGHT_PERCENT /100 * $WIDTH_PTS")"
+CROP_HEIGHT_PTS="$(bc <<< "scale=3; $HEIGHT_PTS - $CROP_TOP_PERCENT /100 * $HEIGHT_PTS")"
+
+# Do the cropping
+if ! gs -o "$OUTPUT_FILE" -sDEVICE=pdfwrite -dNOPAUSE -dQUIET -dBATCH -c "[/CropBox [$CROP_LEFT_PTS $CROP_BOTTOM_PTS $CROP_WIDTH_PTS $CROP_HEIGHT_PTS]" -c " /PAGES pdfmark" -f "$INPUT_FILE";then
+	echo 'Cropping failed' >&2
+	exit 1
+fi
