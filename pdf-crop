@@ -5,8 +5,10 @@ checkValidPercent() {
 }
 
 help() {
-	echo "Usage $(basename "$0") [-l] [-r] [-t] [-b] [-p]"
+	echo "Usage $(basename "$0") [-h] [-l] [-r] [-t] [-b] [-p] input output"
 	echo -e 'Options:'
+	echo -e 'input	The input file which should be cropped'
+	echo -e 'output	The output file'
 	echo -e '-h	Show this help'
 	echo -e '-l	Left margin in percent to corp (default 0)'
 	echo -e '-r	Right margin in percent to crop (default 0)'
