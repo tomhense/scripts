@@ -10,9 +10,9 @@ if ! command -v 'kioclient5' >/dev/null; then
 fi
 
 for i in "$@"; do
-	if [ ! -f "$i" ]; then # File does not exist
+	if [ ! -e "$i" ]; then # File/Folder does not exist
 		echo "$i dooes not exist" >&2
-	elif [ ! -w "$i" ]; then # File is not writeable
+	elif [ ! -w "$i" ]; then # File/Folder is not writeable
 		echo "$i is not writeable" >&2
 	else # Move the file to the trash
 		echo "Trashing '$i'"

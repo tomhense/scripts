@@ -23,7 +23,7 @@ CROP_RIGHT_PERCENT=0
 CROP_TOP_PERCENT=0
 CROP_BOTTOM_PERCENT=0
 EXAMINE_PAGE=1
-while getopts 'hl:r:t:b:p' OPT; do
+while getopts 'hl:r:t:b:p:' OPT; do
 	case $OPT in
 		l)
 			CROP_LEFT_PERCENT="$OPTARG";;
@@ -36,11 +36,11 @@ while getopts 'hl:r:t:b:p' OPT; do
 		p)
 			EXAMINE_PAGE="$OPTARG";;
 		h)
-			showHelp # Show help
+			help # Show help
 			exit 0;;
 		\?)
 			echo "Invalid option -$OPTARG" >&2
-			showHelp
+			help
 			exit 1;;
 	esac
 done
@@ -89,9 +89,9 @@ if [ -f "$OUTPUT_FILE" ]; then
 fi
 
 # Determine pdf page size
-TEMP="$(pdfinfo -f "$EXAMINE_PAGE" "$INPUT_FILE" | grep 'Page size:')"
-WIDTH_PTS="$(echo -n "$TEMP" | awk '{print $3}')"
-HEIGHT_PTS="$(echo -n "$TEMP" | awk '{print $5}')"
+TEMP="$(pdfinfo -f "$EXAMINE_PAGE" -l "$EXAMINE_PAGE" "$INPUT_FILE" | grep -P 'Page\s+\d+\s+size:' | sed -E 's/.*://')"
+WIDTH_PTS="$(echo -n "$TEMP" | awk '{print $1}')"
+HEIGHT_PTS="$(echo -n "$TEMP" | awk '{print $3}')"
 
 # Check if page size is valid
 if ! echo -n "$WIDTH_PTS|$HEIGHT_PTS" | grep -qP '^\d+(\.\d+)?|\d+(\.\d+)?$'; then

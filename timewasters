@@ -1,0 +1,15 @@
+#!/bin/sh
+
+CMD="$1"
+PROGRAMS=( '/usr/bin/freetube' '/usr/bin/steam' )
+
+for i in $PROGRAMS; do
+	if [ "$CMD" = 'lock' ]; then
+		sudo chmod -x "$i"
+	elif [ "$CMD" = 'unlock' ]; then
+		sudo chmod +x "$i"
+	else
+		echo "Unknown command '$CMD'" >&2
+		exit 1
+	fi
+done

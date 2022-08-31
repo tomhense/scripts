@@ -1,0 +1,140 @@
+#!/home/tom/.local/share/conqui-tts/bin/python3
+import argparse
+import re
+import tempfile
+import subprocess as sp
+import os.path
+import importlib.resources
+import mimetypes
+
+from TTS.utils.manage import ModelManager
+from TTS.utils.synthesizer import Synthesizer
+
+# Old model config
+#DEFAULT_MODEL = "tts_models/en/ljspeech/tacotron2-DDC_ph"
+#DEFAULT_SPEAKER_ID = None
+
+# New model config
+DEFAULT_MODEL = "tts_models/en/vctk/vits"
+DEFAULT_SPEAKER_ID = "p227"
+
+# How many lines each call to synthesize should convert
+CHUNK_SIZE = 6
+
+class TTSConverter:
+	def __init__(self, modelPath, configPath, vocoderPath=None, vocoderConfigPath=None, speakerId=None, language=None,
+			speakersFilePath=None, languageIdsFilePath=None, encoderPath=None, encoderConfigPath=None, cuda=False):
+
+		self.synthesizer = Synthesizer(modelPath, configPath, speakersFilePath,
+			languageIdsFilePath, vocoderPath, vocoderConfigPath, encoderPath, encoderConfigPath, cuda)
+
+		self.speakerId = speakerId
+		self.language = language
+		self.speakerWav = None
+	
+	def run(self, text, outputPath):
+		assert(type(text) == str)
+		wav = self.synthesizer.tts(text, self.speakerId, self.language, self.speakerWav)
+		self.synthesizer.save_wav(wav, outputPath)
+
+def chunks(lst, n):
+	"""Yield successive n-sized chunks from lst."""
+	for i in range(0, len(lst), n):
+		yield lst[i:i + n]
+
+def printGreen(*args, **kwargs):
+    print("\033[0;32m", *args, "\033[00m", **kwargs)
+
+def processText(text):
+	# Change char ' to char ’ when between letters a-z
+	# from perl -C -Mutf8 -0777 -p -i -e 's/([a-z])('\'')([a-z])/$1’$3/igm' "$TTSFILE"
+	text = re.sub("([a-z])'([a-z])", "\\1’\\2", text, flags=re.IGNORECASE)
+
+	# Remove all characters not matching 0-9!’a-z \?\n\.,- and replace with a space.
+	# from perl -C -Mutf8 -0777 -p -i -e 's/[^0-9!’a-z \?\n\.,-]/ /igm' "$TTSFILE"
+	text = re.sub("[^0-9!’a-z \?\n\.,-]", " ", text, flags=re.IGNORECASE)
+
+	# Insert newline after char "." and "?"
+	# from perl -C -Mutf8 -0777 -p -i -e 's/(?:\.|\?)\K\n*/\n/igm' "$TTSFILE"
+	text = re.sub("(\.|\?)\n*", "\\1\n", text)
+
+	# Remove leading and trailing spaces on each line
+	# from perl -C -Mutf8 -0777 -p -i -e 's/^ *(.*) */$1/igm' "$TTSFILE"
+	text = re.sub("\n +", "\n", text)
+	text = re.sub(" +\n", "\n", text)
+
+	# Basically replicates the GNU split command with --suffix-length equal to CHUNK_SIZE
+	textChunks = map(lambda x: "\n".join(x), chunks(text.split("\n"), CHUNK_SIZE))
+	return list(filter(lambda x: x != None and x != "", textChunks))
+
+def tts(ttsConverter, lines, outputFilePath):
+	with tempfile.TemporaryDirectory() as tempDir:
+		filenames = []
+		for i, line in enumerate(lines):
+			printGreen(f"Converting chunk {i+1}/{len(lines)}")
+			filename = f"{i+1:05}.wav"
+			ttsConverter.run(line, os.path.join(tempDir, filename))
+			filenames.append(filename)
+
+		segmentsFilePath = os.path.join(tempDir, "segments.txt")
+		with open(segmentsFilePath, "w") as segmentsFile:
+			for filename in filenames:
+				segmentsFile.write(f"file '{filename}'\n")
+
+		printGreen("Starting concatination")
+		if outputFilePath.endswith(".wav"):
+			# Output file is also wav, we can use copy codec
+			ps = sp.run(["ffmpeg", "-f",  "concat", "-safe", "0", "-i", segmentsFilePath, "-c", "copy", outputFilePath])
+		else:
+			# Reencoding needed
+			ps = sp.run(["ffmpeg", "-f",  "concat", "-safe", "0", "-i", segmentsFilePath, outputFilePath])
+		if ps.returncode != 0:
+			raise RuntimeError("Error occured while concatinating files with ffmpeg")
+
+if __name__ == "__main__":
+	parser = argparse.ArgumentParser()
+	parser.add_argument("input", help="Text file which contains the text which should be converted to speech")
+	parser.add_argument("output", help="Output filepath for the speech output")
+	parser.add_argument("--model-name", default=DEFAULT_MODEL, help="Model that should be used for conversion")
+	parser.add_argument("--vocoder-name", help="Vocoder that should be used for conversion, if not " +
+		"specifed the default vocoder of the model wll be used")
+	parser.add_argument("--speaker-id", default=DEFAULT_SPEAKER_ID, help="Speaker id for multispeaker models")
+	#parser.add_argument("--lang", default="en", help="Two letter language code used to choose a model")
+	parser.add_argument("--lang", help="Two letter language code used to choose a model")
+	parser.add_argument("--cuda", action="store_true", help="Use cuda gpu acceleration")
+	args = parser.parse_args()
+
+	# load model manager
+	managerPath = importlib.resources.path("TTS", ".models.json")
+	manager = ModelManager(managerPath)
+
+	# load pre-trained model paths
+	modelPath, configPath, modelItem = manager.download_model(args.model_name)
+	args.vocoder_name = modelItem["default_vocoder"] if args.vocoder_name is None else args.vocoder_name
+
+	vocoderPath = None
+	vocoderConfigPath = None
+	if args.vocoder_name is not None:
+		vocoderPath, vocoderConfigPath, _ = manager.download_model(args.vocoder_name)
+
+	if not os.path.isfile(args.input):
+		raise FileNotFoundError("Input file not found")
+
+	if os.path.isfile(args.output):
+		raise FileExistsError("The output file already exists")
+
+	if mimetypes.guess_type(args.input)[0] != "text/plain":
+		raise RuntimeError("The input file does not seem to be a plain text file")
+
+	with open(args.input, "r", encoding="utf-8") as inputFile:
+		inputText = inputFile.read()
+	
+	processedLines = processText(inputText)
+	printGreen(f"File was split into {len(processedLines)} chunks")
+
+	ttsConverter = TTSConverter(modelPath, configPath, vocoderPath, vocoderConfigPath, 
+		args.speaker_id, args.lang, cuda=args.cuda)
+
+	printGreen("Starting conversion")
+	tts(ttsConverter, processedLines, args.output)
+

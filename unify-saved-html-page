@@ -37,6 +37,7 @@ def recurse(root, keepScripts=False, keepImages=False):
 					style.text = sanitizeString(file.read())
 					#style.text = file.read()
 				root.append(style)
+				root.remove(child)
 				print("Replaced stylesheet")
 
 		elif child.tag == "script" and keepScripts and child.get("src") != None:

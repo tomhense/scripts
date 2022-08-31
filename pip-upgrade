@@ -5,16 +5,21 @@ if [ "$USER" = 'root' ]; then
 	exit 1
 fi
 
-PACKAGES=( $(pip list -o | awk 'NR > 2 { print $1 }') )
-PACKAGES_LENGTH=${#PACKAGES}
-
-if [ "$PACKAGES_LENGTH" -gt 0 ]; then
-	echo "Upgrading $PACKAGES_LENGTH packges"
-
+SUCCESS_COUNT=1
+while [ $SUCCESS_COUNT -gt 0 ]; do
+	SUCCESS_COUNT=0
+	PACKAGES=( $(pip list -o | awk 'NR > 2 { print $1 }') )
+	PACKAGES_LENGTH=${#PACKAGES}
 	for PACKAGE in $PACKAGES; do
-		echo "Upgrading $PACKAGE"
-		pip install --upgrade --user "$PACKAGE" >/dev/null
+		echo "Upgrading $PACKAGE ..."
+		if pip install --upgrade --user "$PACKAGE"; then
+			SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+		else
+			echo -e "Failed to upgrade $PACKAGE\n"
+		fi
 	done
-else
-	echo 'No packages to upgrade!'
-fi
+done
+
+echo '------------------------------'
+echo 'Finished updating successfully'
+echo '------------------------------'

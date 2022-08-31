@@ -17,8 +17,9 @@ fi
 
 OUTPUTFILE="$(mktemp --suffix .pdf)"
 
-if gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dNOPAUSE -dQUIET -dBATCH -sOutputFile="$OUTPUTFILE" "$INPUTFILE"; then
-	mv -f "$OUTPUTFILE" "$INPUTFILE"
+if gs -sDEVICE=pdfwrite -dCompatibilityLevel=1.4 -dNOPAUSE -dQUIET -dBATCH -sOutputFile="$OUTPUTFILE" "$INPUTFILE" && [ -f "$OUTPUTFILE" ]; then
+	#mv -f "$OUTPUTFILE" "$INPUTFILE"
+	mv -f "$OUTPUTFILE" "${INPUTFILE%.pdf}_optimized.pdf"
 	echo "Successfully compressed '$INPUTFILE'"
 else
 	echo "Error encountered while compressing '$INPUTFILE'" >&2

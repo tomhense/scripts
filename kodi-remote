@@ -1,5 +1,7 @@
 #!/bin/sh
 
+# Idea from https://github.com/metalx1000
+
 # Default host and port
 HOST='myhost' 
 PORT='8080'

@@ -1,0 +1,53 @@
+#!/bin/sh
+
+# Make sure there is exactly one argument given (a file)
+if [ $# != 1 ] || ! [ -f "$1" ]; then
+	echo 'Invalid arguments given, this script accepts exactly one argument, which is the file that should be deleted' >&2
+	exit 1
+fi
+
+# Make sure that the user wants to continue
+echo 'This script deletes veracrypt container files by firstly overwriting the header and backup header area of the given file and then deleting it'
+echo ''
+read -p "Are you sure you want to continue deleting '$1' ? (y/n) "
+if ! [[ "$REPLY" =~ ^[Yy] ]]; then
+	exit 0
+fi
+
+# Get size of file
+FILESIZE="$(stat -c %s "$1")"
+
+# Check for errors (196608B=192KiB is the minimal filesize for valid container file)
+if ! echo -n "$FILESIZE" | grep -qE '[0-9]+' || [ "$FILESIZE" -lt 196608 ]; then
+	echo 'Abort! Could not get filesize or file was to small' >&2
+	exit 1
+fi
+
+# Remove first 128KiB (overwrite multiple time to make sure)
+dd if=/dev/urandom of="$1" bs=64K count=2 status=none
+dd if=/dev/urandom of="$1" bs=64K count=2 status=none
+dd if=/dev/urandom of="$1" bs=64K count=2 status=none
+
+# Check for errors
+if [ $? != 0 ]; then
+	echo 'Abort! Something went wrong' >&2
+	exit 1
+fi
+
+# Remove last 64KiB (overwrite multiple time to make sure)
+echo $FILESIZE_KIB
+dd if=/dev/urandom of="$1" obs=1B seek="$FILESIZE" bs=64K count=1 status=none
+dd if=/dev/urandom of="$1" obs=1B seek="$FILESIZE" bs=64K count=1 status=none
+dd if=/dev/urandom of="$1" obs=1B seek="$FILESIZE" bs=64K count=1 status=none
+
+# Check for errors
+if [ "$?" != 0 ]; then
+	echo 'Abort! Something went wrong' >&2
+	exit 1
+fi
+
+# Delete the file
+env rm "$1" || echo 'Error while deleting file' >&2; exit 1
+
+echo 'Completed without errors'
+
