@@ -1,0 +1,65 @@
+#!/bin/sh
+
+############################################################################################################
+# Check for missing resources in a joplin export files                                                     #
+#                                                                                                          #
+# What is a missing resource?:                                                                             #
+# If a resource file is referenced in a markdown file and the resource file does not exist                 #
+#                                                                                                          #
+# Why can this occur?:                                                                                     #
+# This may occur because of sync issues                                                                    #
+#                                                                                                          #
+# What can be done if I have missing resources?:                                                           #
+# These files are deleted, but you may be able to recover them from old exports (when they still existed)  #
+############################################################################################################
+
+
+# Check arguments for errors
+if [ $# != '1' ] || ! [ -f "$1" ]; then
+	echo 'Invalid arguments give, this script only accepts one \
+argument: A joplin export (.jex) file' >&2 || exit 1
+fi
+
+# Create tempdir
+TEMPDIR="$(mktemp -d)"
+
+# Make filepath given by argument absolute (because we will change directories soon)
+INPUTFILE="$(realpath "$1")"
+
+# Returns the filenames of the markdown files that contain missing ids.
+# Works by iterating through all grep matches (filename + resource-id), and then checking if
+# a resource with that id exists in the resource folder (find command is needed for wildcards
+# matches because we don't know the file extension), if not output the filename.
+findMissing() {
+	for i in $(grep -Po ':/[a-z0-9]{32}' *.md); do 
+		j="$(echo -n $i | awk -F'::' '{ print $2 }' | tail -c '+2')"; 
+		if [ "$(find resources -type f -name "${j}*" -print -quit)" = '' ]; then
+			echo "$i" | awk -F'::' '{ print $1 }'
+		fi
+	done
+}
+
+# Go to tempdir
+pushd "$TEMPDIR" >/dev/null
+
+# Extract the given inputfile (and handle errors)
+if ! tar -xf "$INPUTFILE"; then
+	echo 'Error while extracting export file' >&2
+	exit 1
+fi
+
+# Find the filenames of the markdown files that contain the missing resource-ids
+# use head to print the first line of each file (in joplin that is always the note title)
+MISSING_RESOURCES="$(findMissing)"
+if [ "$MISSING_RESOURCES" = '' ]; then
+	echo 'Good news, no missing resources found'
+else
+	echo "$MISSING_RESOURCES" | xargs head -n 1
+fi
+
+# Go back to directory we were at the start
+popd
+
+# Remove tempdir and files within it
+env rm -dr "$TEMPDIR"
+
