@@ -1,24 +1,37 @@
 #!/bin/sh
 
-# Maximum clipbord size in bytes
+# Return the contents of the clipboard, use different utils depending on current system
+clipGet() {
+	if [ "$TERMUX_VERSION" ]; then # Termux
+		termux-clipboard-get
+	elif [ "$XDG_SESSION_TYPE" = 'wayland' ]; then 
+		wl-paste 
+	elif [ "$XDG_SESSION_TYPE" = 'x11' ]; then 
+		xclip -o -selection clipboard
+	else
+		echo 'Unknown system: Neither Termux, Wayland or X11!' >&2
+		exit 1
+	fi
+}
 
-if [ "$TERMUX_VERSION" ]; then # Termux
-	SIZE=$(termux-clipboard-get | wc -c)
-	MAX_SIZE=512
-else # Normal desktop
-	SIZE=$(xclip -o -selection clipboard | wc -c)
+# Maximum clipboard content size in bytes
+# This number does not represent to maximum size the clipboard can handle but rather
+# the maximum size that should be converted to qr (because otherwise the qr code get to big to display)
+if [ "$TERMUX_VERSION" ]; then  # Termux
+	MAX_SIZE=512  # Smaller size because outputting in terminal
+else 
 	MAX_SIZE=2048
 fi
 
-if [ "$SIZE" -lt "$MAX_SIZE" ]; then
-	if [ "$TERMUX_VERSION" ]; then # Termux
-		termux-clipboard-get | qrencode -m 1 -t ANSI -o -
-	else # Normal desktop
-		xclip -o -selection clipboard | qrencode -m 2 -t PNG -o - | display -filter point -resize 1000x1000 - &
-	fi
-	exit 0
-else
-	echo "Clipboard content to large ${MAX_SIZE}B<" >&2
+# Raise error if clipboard content if bigger than MAX_SIZE bytes
+if [ "$(clipGet | wc -c )" -gt "$MAX_SIZE" ]; then
+	echo "Clipboard content to large, max size is $MAX_SIZE bytes" >&2
 	exit 1
+fi
+
+if [ "$TERMUX_VERSION" ]; then  # Termux, output to stdout
+	clipGet | qrencode -m 1 -t ANSI -o -
+else  # Use imagemagick to display qr code image
+	clipGet | qrencode -m 2 -t PNG -o - | display -filter point -resize 1000x1000 - &
 fi
 
