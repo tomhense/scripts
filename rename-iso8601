@@ -3,18 +3,25 @@
 help() {
 	echo 'Rename ISO 8601 files'
 	echo "Renames files with format '20[0-9]{6}' to '[0-9]{4}-[0-9]{2}-[0-9]{2}"
-	echo "Usage: $0 [-f] [file...]"
+	echo "Usage: $0 [-f] [-s] [-h] [file...]"
 	echo -e "-f\tDo not ask for confirmtaion while renaming files"
+	echo -e "-s\tSimulate, do not actually move anything"
+	echo -e "-h\tShow this help"
 	echo -e "file\tFile to rename"
 }
 
 NO_ASK=0
-while getopts "f" OPT; do
+while getopts "fsh" OPT; do
 	case $OPT in
 		f)
 			NO_ASK=1;;
+		s)
+			SIMULATE=1;;
+		h)
+			help;;
 		\?)
-			echo "Invalid option: -$OPTARG" >&2;;
+			echo "Invalid option: -$OPTARG" >&2
+			help;;
 	esac
 done
 shift $((OPTIND-1))
@@ -22,16 +29,21 @@ shift $((OPTIND-1))
 for i in "$@"; do
 	if echo "$i" | grep -Pq '20\d{6}'; then
 		j="$(echo "$i" | sed -r 's/(20[0-9]{2})([0-9]{2})([0-9]{2})/\1-\2-\3/')"
-		if [ $NO_ASK = 1 ]; then
+	elif echo "$i" | grep -Pq '\d{2}\.\d{2}\.\d{4}'; then
+		j="$(echo "$i" | sed -r 's/([0-9]{2})\.([0-9]{2})\.([0-9]{4})/\3-\2-\1/')"
+	else
+		continue
+	fi
+
+	if [ $SIMULATE ]; then
+		echo "mv '$i' '$j'"
+	elif [ $NO_ASK ]; then
+		mv "$i" "$j"
+	else 
+		read -p "Rename '$i' to '$j'? (y/n) "
+		if [[ "$REPLY" =~ ^[Yy] ]]; then
 			mv "$i" "$j"
-		else 
-			read -p "Rename '$i' to '$j'? (y/n) "
-			if [[ "$REPLY" =~ ^[Yy] ]]; then
-				mv "$i" "$j"
-			fi
 		fi
 	fi
 done
-
-
 
