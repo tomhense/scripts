@@ -16,7 +16,7 @@ help() {
 	echo -e '-h\tShow this help'
 	echo -e '-s\tClear saves'
 	echo -e '-c\tClear caches'
-	echo -e '-m\tUpdate modlist'
+	#echo -e '-m\tUpdate modlist'
 }
 
 # Ask the user to confirm something
@@ -37,12 +37,12 @@ if [ "$#" = 0 ]; then
 fi
 
 # Check if uboat is installed
-if [ ! -f "$UBOAT_GAME" ]; then
+if [ ! -d "$UBOAT_GAME" ]; then
 	echo 'Uboat game is not installed' >&2
 	exit 1
 fi
 
-while getopts "hscm" OPT; do
+while getopts "hsc" OPT; do
 	case $OPT in
 		s)
 			if confirm 'Do you want to delete the saves'; then
@@ -55,11 +55,11 @@ while getopts "hscm" OPT; do
 				env rm "$UBOAT_GAME"/Temp/*
 				echo 'Successfully cleared the caches'
 			fi;;
-		m)
-			if confirm 'Do you want to update the modlist'; then
-				ls "$UBOAT_WORKSHOP" | sed -E 's/^/steam:/' | tee "$UBOAT_MODLIST"
-				echo 'Successfully updated the modlist'
-			fi;;
+		#m)
+		#	if confirm 'Do you want to update the modlist'; then
+		#		ls "$UBOAT_WORKSHOP" | sed -E 's/^/steam:/' | tee "$UBOAT_MODLIST"
+		#		echo 'Successfully updated the modlist'
+		#	fi;;
 		h)
 			help;;
 		\?)
