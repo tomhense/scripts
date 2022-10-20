@@ -43,7 +43,7 @@ def qpdfSlicePdf(inputFilename, startPage, endPage, outputFilename):
 		error(f"qpdf failed while slicing '{outputFilename}'")
 
 def sanitizeFilename(filename):
-	badchars= re.compile(r'[^A-Za-z0-9_. ]+|^\.|\.$|^ | $|^$')
+	badchars = re.compile(r'[^äöüa-z0-9_\-. ]+|^\.|\.$|^ | $|^$', re.IGNORECASE)
 	return badchars.sub('_', filename)
 
 def extractName(chapterMatch, pattern=None):
