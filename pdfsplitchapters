@@ -1,0 +1,168 @@
+#!/bin/python3
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from shutil import which
+from tempfile import NamedTemporaryFile
+
+
+def eprint(*args, **kwargs):
+	print(*args, file=sys.stderr, **kwargs)
+
+def error(errorMsg):
+	eprint("ERROR:", errorMsg)
+	exit(1)
+
+def checkIfInstalled(program):
+	return which(program) is not None
+
+def extractBookmarks(filename):
+	pdftk = subprocess.run(["pdftk", filename, "dump_data_utf8"], capture_output=True)
+
+	if pdftk.returncode != 0:
+		error(f"pdftk failed while extracting bookmarks of file '{filename}'")
+
+	bookmarks = []
+	stdoutLines = pdftk.stdout.decode().split("\n")
+	for i in range(len(stdoutLines)):
+		if re.match("^BookmarkBegin", stdoutLines[i]):
+			bookmarkTitle = stdoutLines[i+1].replace("BookmarkTitle: ", "")
+			bookmarkLevel = int(stdoutLines[i+2].replace("BookmarkLevel: ", ""))
+			bookmarkPagenumber = int(stdoutLines[i+3].replace("BookmarkPageNumber: ", ""))
+
+			bookmarks.append({
+				"title": bookmarkTitle,
+				"level": bookmarkLevel,
+				"startpage": bookmarkPagenumber,
+				"endpage": None
+			})
+	return bookmarks
+
+def qpdfSlicePdf(inputFilename, startpage, endpage, outputFilename):
+	qpdf = subprocess.run(["qpdf", inputFilename, "--pages", ".", f"{startpage}-{endpage}", "--", outputFilename])
+	if qpdf.returncode != 0:
+		error(f"qpdf failed while slicing '{outputFilename}'")
+
+def sanitizeFilename(filename):
+	badchars = re.compile(r'[^äöüa-z0-9_\-. ]+|^\.|\.$|^ | $|^$', re.IGNORECASE)
+	return badchars.sub('_', filename)
+
+def printBookmarks(bookmarks):
+	for i, bookmark in enumerate(bookmarks):
+		print(f"--- Bookmark {i:03} ---")
+		print("Title:", bookmark["title"])
+		print("Bookmark level:", bookmark["level"])
+		print("Startpage:", bookmark["startpage"])
+		print("Endpage:", "end" if bookmark["endpage"] is None else bookmark["endpage"])
+		print()
+
+def optimizePdf(inputFilename):
+	if not checkIfInstalled("gs"):
+		error("ghostscript is missing")
+	
+	with NamedTemporaryFile(suffix=".pdf") as tempfile:
+		print(tempfile.name)
+		ghostscript = subprocess.run(["gs", "-sDEVICE=pdfwrite", "-dCompatibilityLevel=1.4", "-dNOPAUSE", 
+			"-dQUIET", "-dBATCH", f"-sOutputFile={tempfile.name}", inputFilename])
+		if ghostscript.returncode == 0:
+			shutil.copy(tempfile.name, inputFilename)
+		else:
+			error(f"Ghostscript failed while optimizing pdf '{filename}'")
+
+def fillOutputTemplate(outputTemplate, bookmarkIndex, bookmark):
+	outputTemplate = outputTemplate.replace("%%number", f"{bookmarkIndex:02}")
+	outputTemplate = outputTemplate.replace("%%title", bookmark["title"])
+	outputTemplate = outputTemplate.replace("%%level", str(bookmark["level"]))
+	outputTemplate = outputTemplate.replace("%%start", str(bookmark["startpage"]))
+	outputTemplate = outputTemplate.replace("%%end", str(bookmark["endpage"]))
+	return outputTemplate
+
+def slicePdf(inputFile, bookmarks, outputTemplate, optimize=False, overwrite=False):
+	with ThreadPoolExecutor(max_workers=10) as tpe:
+		for i, bookmark in enumerate(bookmarks):
+			startpage = bookmark["startpage"] if bookmark["startpage"] is not None else "1"
+			endpage = bookmark["endpage"] if bookmark["endpage"] is not None else "z"
+
+			# Determine output filename
+			#outputFilename = sanitizeFilename(fillOutputTemplate(outputTemplate, i, bookmark))
+			outputFilename = fillOutputTemplate(outputTemplate, i, bookmark)
+
+			# Check if file already exists
+			if not overwrite and os.path.isfile(outputFilename):
+				print(f"File '{fileName}' already exists, skipping it")
+			else:
+				# Finally slice the pdf
+				tpe.submit(qpdfSlicePdf, inputFile, startpage, endpage, outputFilename)
+
+				# Optimize the pdf
+				if optimize:
+					tpe.submit(optimizePdf, outputFilename)
+
+def createParser():
+	parser = argparse.ArgumentParser(description="Split pdf file into chapter files according to a given regex")
+	parser.add_argument("input", help="Input file")
+	parser.add_argument("--output", "-o", default="%%number - %%title.pdf", help="Output files template, available replacements are '%%number', '%%title', '%%level', '%%start' and '%%end'")
+	parser.add_argument("--level", "-l", default="1", help="Which bookmark indentation level will be used as chapter markers, you can either supply a number '--level 5' or a range '--level 1-3'")
+	parser.add_argument("--doc-start", "-s", action="store_true", help="Ignore the first page marker of the first chapter and instead set it to the beginning of the input document")
+	parser.add_argument("--optimize", "-O", action="store_true", help="Optimize the output files using ghostscript")
+	parser.add_argument("--overwrite", "-f", action="store_true", help="Overwrite existing files")
+	parser.add_argument("--no-confirm", "-y", dest="confirm", action="store_false", help="Do not ask for confirmation")
+	return parser
+
+if __name__ == "__main__":
+	parser = createParser()
+	args = parser.parse_args()
+
+	# Check if required programs are installed
+	if not checkIfInstalled("pdftk"):
+		error("pdftk is missing")
+	if not checkIfInstalled("qpdf"):
+		error("qpdf is missing")
+
+	# Check that the output template ends on a .pdf extension
+	if not args.output.endswith(".pdf"):
+		error("Output template does not container a pdf extension")
+
+	# Check if the given input file exists
+	if not os.path.isfile(args.input):
+		error("The given input file does not exist")
+
+	# Check that the given input file has a .pdf extension
+	if not args.input.endswith(".pdf"):
+		error("The given input file does not have a pdf extension") 
+
+	# Extract chapters from input file
+	bookmarks = extractBookmarks(args.input)
+
+	# Parse bookmark level argument
+	if re.match("\d+", args.level):  # Single level provided
+		minLevel = int(args.level)
+		maxLevel = int(args.level)
+	elif re.match("\d+-\d+", args.level):  # level range provided
+		minLevel = int(args.level.partition("-")[0])
+		maxLevel = int(args.level.partition("-")[2])
+	
+	# Filter the bookmarks to match the min- and maxlevel
+	bookmarks = list(filter(lambda x: minLevel <= x["level"] and x["level"] <= maxLevel, bookmarks))
+
+	# Set the endpage information
+	for i in range(len(bookmarks) -1):
+		bookmarks[i]["endpage"] = bookmarks[i+1]["startpage"] - 1
+
+	# Ignore startmarker of first chapter and force set it to 1
+	if args.doc_start:
+		bookmarks[0]["startpage"] = 1
+	
+	printBookmarks(bookmarks)
+
+	# Ask the user for confirmation
+	if args.confirm and input("Do you wanna proceed (y/n)? ").lower() != "y":
+		error("Aborted by user")
+	
+	# Slice the pdf
+	slicePdf(args.input, bookmarks, args.output, optimize=args.optimize, overwrite=args.overwrite)
+	print("Successfully sliced the input file into chapters")
