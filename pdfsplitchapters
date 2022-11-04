@@ -53,7 +53,7 @@ def sanitizeFilename(filename):
 
 def printBookmarks(bookmarks):
 	for i, bookmark in enumerate(bookmarks):
-		print(f"--- Bookmark {i:03} ---")
+		print(f"--- Bookmark {i+1:03} ---")
 		print("Title:", bookmark["title"])
 		print("Bookmark level:", bookmark["level"])
 		print("Startpage:", bookmark["startpage"])
@@ -89,7 +89,7 @@ def slicePdf(inputFile, bookmarks, outputTemplate, optimize=False, overwrite=Fal
 
 			# Determine output filename
 			#outputFilename = sanitizeFilename(fillOutputTemplate(outputTemplate, i, bookmark))
-			outputFilename = fillOutputTemplate(outputTemplate, i, bookmark)
+			outputFilename = fillOutputTemplate(outputTemplate, i+1, bookmark)
 
 			# Check if file already exists
 			if not overwrite and os.path.isfile(outputFilename):
