@@ -1,6 +1,9 @@
 #!/bin/sh
 FIREFOX_DIR="$HOME/.mozilla/firefox"
 
+# Choose the firsting existing firefox binary from this list
+FIREFOX=${firefox:-firefox-developer-edition}
+
 # Prepend $FIREFOX_PROFILE for all entries that are not absolute paths
 # Second interal sed expression escapes the slashes from the path
 SED_COMMAND="s/^([^/])/$(echo $FIREFOX_DIR | sed 's/\//\\\//g')\/\1/g"
@@ -8,8 +11,7 @@ PROFILE_DIR="$(grep -Po '(?<=Path=).+' "$FIREFOX_DIR/profiles.ini" | sed -E "$SE
 
 if [ "$PROFILE_DIR" != '' ]; then
 	echo "Chose profile $PROFILE_DIR"
-	firefox --profile "$PROFILE_DIR" >/dev/null 2>&1 &
-	disown %1
+	nohup $FIREFOX --profile "$PROFILE_DIR" >/dev/null 2>&1 &
 	exit 0
 else
 	echo 'Empty profile selection' >&2
