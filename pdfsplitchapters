@@ -93,7 +93,7 @@ def slicePdf(inputFile, bookmarks, outputTemplate, optimize=False, overwrite=Fal
 
 			# Check if file already exists
 			if not overwrite and os.path.isfile(outputFilename):
-				print(f"File '{fileName}' already exists, skipping it")
+				print(f"File '{outputFilename}' already exists, skipping it")
 			else:
 				# Finally slice the pdf
 				tpe.submit(qpdfSlicePdf, inputFile, startpage, endpage, outputFilename)
