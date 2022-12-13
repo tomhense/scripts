@@ -1,0 +1,38 @@
+#!/bin/sh
+
+if [ "$#" != 1 ]; then
+	echo 'Invalid number of arguments supplied, script only accepts one argument which is the path of'\
+'the folder in which the backup is to be saved.' >&2
+	exit 1
+fi
+
+BACKUP_DESTINATION="$1"
+FIREFOX_FOLDER="$HOME/.mozilla/firefox"
+PROFILE_FOLDER=$(cat "$FIREFOX_FOLDER/installs.ini" | grep 'Default=' | sed 's/Default=//')
+
+if [ "$(printf "$PROFILE_FOLDER" | wc -l)" = 1 ]; then
+	echo 'Found no firefox default profile' >&2
+	exit 1
+elif [ "$(printf "$PROFILE_FOLDER" | wc -l)" -gt 1 ]; then
+	echo 'Found more than one firefox default profile, because multiple installs exist.' >&2
+	exit 1
+fi
+
+# Check if the backup destination is valid
+if ! [ -d "$BACKUP_DESTINATION" ]; then
+	echo "The backup destination '$BACKUP_DESTINATION' is not a folder." >&2
+	exit 1
+fi
+
+BOOKMARK_BACKUP_FILE="$(find "$PROFILE_FOLDER/bookmarkbackups" | sort | tail -n1)"
+
+# Do a sanity check to marke sure the backup source file exists
+if ! [ -f "$BOOKMARK_BACKUP_FILE" ]; then
+	echo 'Something went wrong, no backup source file found' >&2
+	exit 1
+fi
+
+# Do the backup copy
+echo "copy '$BOOKMARK_BACKUP_FILE' '$BACKUP_DESTINATION'"
+cp "$BOOKMARK_BACKUP_FILE" "$BACKUP_DESTINATION"
+
