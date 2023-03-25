@@ -8,12 +8,12 @@ fi
 
 BACKUP_DESTINATION="$1"
 FIREFOX_FOLDER="$HOME/.mozilla/firefox"
-PROFILE_FOLDER=$(cat "$FIREFOX_FOLDER/installs.ini" | grep 'Default=' | sed 's/Default=//')
+PROFILE_FOLDER="$(cat "$FIREFOX_FOLDER/installs.ini" | grep 'Default=' | sed 's/Default=//')"
 
-if [ "$(printf "$PROFILE_FOLDER" | wc -l)" = 1 ]; then
+if [ "$(printf "$PROFILE_FOLDER" | wc -w)" = 1 ]; then
 	echo 'Found no firefox default profile' >&2
 	exit 1
-elif [ "$(printf "$PROFILE_FOLDER" | wc -l)" -gt 1 ]; then
+elif [ "$(printf "$PROFILE_FOLDER" | wc -w)" -gt 1 ]; then
 	echo 'Found more than one firefox default profile, because multiple installs exist.' >&2
 	exit 1
 fi
