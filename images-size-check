@@ -1,0 +1,61 @@
+#!/bin/bash
+
+# The help menu
+help() {
+	echo "Usage $(basename "$0") [-h] [-l] [-r] [-t] [-b] [-p] input output"
+	echo -e 'Check if a given image file has the given minimum/maximum dimensions and output either yes or no'
+	echo -e ''
+	echo -e 'Options:'
+	echo -e 'input	The input file which should be checked'
+	echo -e '-h	Show this help'
+	echo -e '-w	Minimum width'
+	echo -e '-W	Maximum width'
+	echo -e '-h	Minimum height'
+	echo -e '-H	Maximum width'
+	exit 0
+}
+
+# Parse options
+declare -i MINWIDTH=0
+declare -i MAXWIDTH=1000000 # 'infinite' default value
+declare -i MINHEIGHT=0
+declare -i MAXHEIGHT=1000000 # 'infinite' default value
+while getopts 'hw:W:h:H:' OPT; do
+	case $OPT in
+		w)
+			MINWIDTH="$OPTARG";;
+		W)
+			MAXWIDTH="$OPTARG";;
+		h)
+			MINHEIGHT="$OPTARG";;
+		H)
+			MAXHEIGHT="$OPTARG";;
+		h)
+			help;;
+		\?)
+			echo "Invalid option -$OPTARG" >&2
+			help;;
+	esac
+done
+shift $((OPTIND))
+if [ $# != 1 ]; then
+	echo 'Missing arguments' >&2
+	help
+fi
+IMAGE="$1"
+
+# The actual script logic
+if ! DIMENSIONS=$(identify -format '%wx%h' "$IMAGE" 2>/dev/null); then
+	echo 'Failed to identiy image information' >&2
+	exit 1
+fi
+
+WIDTH=$(echo -n "$DIMENSIONS" | cut -f1 -d 'x')
+HEIGHT=$(echo -n "$DIMENSIONS" | cut -f2 -d 'x')
+
+if test "$WIDTH" -ge "$MINWIDTH" && test "$WIDTH" -le "$MAXWIDTH" && test "$HEIGHT" -ge "$MINHEIGHT" && test "$HEIGHT" -le "$MAXHEIGHT" ; then
+	echo yes
+else
+	echo no
+fi
+
