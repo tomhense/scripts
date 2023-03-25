@@ -10,19 +10,18 @@ namespace='org.freedesktop.appearance'
 key='color-scheme'
 
 # Query the dbus endpoint
-returnval="$(qdbus $service $method $namespace $key)"
 
 # Check if query was successfully executed
-if [ $? != 0 ]; then
+if ! returnval="$(qdbus $service $method $namespace $key)"; then
 	echo 'Error occured while querying qdbus' >&2
 	exit 1
 fi
 
 # Return light or dark depending on query response
 if [ "$returnval"  = '1' ]; then
-	echo -n 'dark'
+	echo 'dark'
 elif [ "$returnval" = '2' ]; then
-	echo -n 'light'
+	echo 'light'
 else
 	echo 'Unknown query response' >&2
 	exit 1
