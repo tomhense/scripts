@@ -9,14 +9,16 @@ for i in $@; do
 	WIDTH=$(echo $DIMENSIONS | cut -f1 -d 'x')
 	HEIGHT=$(echo $DIMENSIONS | cut -f2 -d 'x')
 	if [ $WIDTH -lt $HEIGHT ]; then 
-		echo "mv $i portrait"
-		mv "$i" portrait
+		echo "$i --> portrait"
+		ln -s "../${i}" portrait
 		PORTRAITCOUNTER=$((PORTRAITCOUNTER+1))
 	else
-		echo "mv $i landscape"
-		mv "$i" landscape
+		echo "$i --> landscape"
+		ln -s "../${i}" landscape
 		LANDSCAPECOUNTER=$((LANDSCAPECOUNTER+1))
 	fi
 done
 echo "$PORTRAITCOUNTER portrait images"
 echo "$LANDSCAPECOUNTER landscape images"
+
+rmdir portrait landscape 2>/dev/null

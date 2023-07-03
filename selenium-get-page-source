@@ -1,29 +1,28 @@
 #!/bin/python3
 from __future__ import print_function
 from selenium import webdriver
+from selenium.webdriver.firefox.options import Options
 import time
 import argparse
 import re
 import sys
 import os
 
-def extractSource(url, scrollToEnd=False, enableImages=False, sleep=None, headless=False):
-	options = webdriver.FirefoxOptions()
+def extractSource(url, scrollToEnd=False, sleep=None, headless=False):
+	options = Options()
+	options.page_load_stratergy = "normal"
 	if headless:
 		options.add_argument("--headless")
 
-	profile = webdriver.FirefoxProfile()
-	if not enableImages:
-		profile.set_preference("permissions.default.image", 2) # Disable all image loading
-	
-	browser=webdriver.Firefox(service_log_path=os.devnull, firefox_profile=profile, options=options)
+
+	browser=webdriver.Firefox(service_log_path=os.devnull, options=options)
 	browser.get(url)
 	while scrollToEnd:
 		browser.execute_script("window.scrollBy(0,window.scrollMaxY)")
 		time.sleep(1)
 		scrollToEnd = browser.execute_script("return window.scrollY != window.scrollMaxY")
 	if sleep:
-	 	time.sleep(sleep)
+		time.sleep(sleep)
 	source = browser.page_source
 	browser.close()
 	return source
@@ -32,14 +31,14 @@ def isUrl(url):
 	return re.match("http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+", url) != None
 
 def eprint(*args, **kwargs):
-    print(*args, file=sys.stderr, **kwargs)
+	print(*args, file=sys.stderr, **kwargs)
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser(description="Extract source code from page (with js)")
 	parser.add_argument("url", help="The url to extract the source from")
 	parser.add_argument("--scroll", action="store_true", help="Scroll page to the end")
 	parser.add_argument("--output", "-o", help="Output to file instead of stdout")
-	parser.add_argument("--enable-images", action="store_true", help="Disable the loading of all images")
+	#parser.add_argument("--enable-images", action="store_true", help="Disable the loading of all images")
 	parser.add_argument("--sleep", type=int, help="Sleep n seconds before extracting source")
 	parser.add_argument("--headless", action="store_true", help="Run headless")
 	args = parser.parse_args()
@@ -48,7 +47,6 @@ if __name__ == "__main__":
 		source = extractSource(
 			args.url, 
 			scrollToEnd=args.scroll, 
-			enableImages=args.enable_images, 
 			sleep=args.sleep, 
 			headless=args.headless
 		)
