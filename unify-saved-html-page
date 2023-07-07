@@ -1,17 +1,78 @@
 #!/bin/python3
-import lxml.html
-import lxml.etree
 import base64
 import re
 import os
+import requests
 import argparse
+import unicodedata
+import jsbeautifier
+import cssbeautifier
 from urllib.parse import unquote
+from bs4 import BeautifulSoup
 
-controlChars = dict.fromkeys(range(32))
-controlChars.pop(ord("\n"))
+def removeControlCharacters(s):
+	return "".join(ch for ch in s if unicodedata.category(ch)[0]!="C")
 
-def removeControlCharacters(string):
-	return string.translate(controlChars)
+def bakeInCSSSources(css, baseUrl=None):
+	# Replace all url() calls with the base64 encoded version
+	for match in re.finditer(r"url\(([^\)]+)\)", css):
+		url = match.group(1).strip('"\'')
+		
+		# Try to get the extension from the url
+		if extensionMatch := re.search(r"\.([a-z]{3,4})", url.rpartition("/")[2], re.IGNORECASE):
+			extension = extensionMatch.groups()[0].upper()
+		else:
+			extension = None
+
+		# Dont't try to bake/request files that do not have a supported extension
+		#if extension not in ["PNG", "JPG", "JPEG", "GIF", "WEBP", "SVG", "TTF", "WOFF", "WOFF2","OTF"]:
+		#	continue
+
+		# Url is already in base64 so we don't need to do anything
+		if url.startswith("data:"):
+			continue
+
+		# Url is relative to the root of the website so we need to add the base url
+		if url.startswith("/"): # Relative to the root of the website
+			if baseUrl is None:
+				print(f"You need to specify a base url to bake in relative urls")
+				exit(1)
+			url = baseUrl.rstrip("/") + url
+		
+		if not url.startswith("http"):
+			print(f"Unable to bake in url: '{url}'")
+			continue
+
+		# Try to download the file
+		try:
+			response = requests.get(url)
+		except requests.exceptions.RequestException as e:
+			print(f"Unable to fetch url: '{url}'")
+			continue
+
+		# Check if the response is an image
+		contentType = response.headers.get("content-type")
+
+		# Set the base64 header based on the content type
+		if contentType == "font/ttf":
+			base64Header = "data:font/ttf;base64,"
+		elif contentType == "font/woff":
+			base64Header = "data:font/woff;base64,"
+		elif contentType == "font/woff2":
+			base64Header = "data:font/woff2;base64,"
+		elif contentType.startswith("image/"):
+			base64Header = f"data:{contentType};base64,"
+		else: # Unsupported content type
+			print(f"Unsupported content type: '{contentType}' for url: '{url}'")
+			continue
+
+		# Encode the response and replace the url with the base64 encoded version
+		encoded = base64.b64encode(response.content).decode('ascii')
+		css = css.replace(match.group(1), f"url({base64Header}{encoded})")
+		print(f"Replaced url: '{url}'")
+	
+	return css
+
 
 def bakeInImage(imageElement):
 	src = unquote(imageElement.get("src"))
@@ -19,71 +80,88 @@ def bakeInImage(imageElement):
 
 	if not isAlreadyInBase64 and os.path.isfile(src):
 		extension = re.search(r"\.(.{3,4})$", src).groups()[0].upper()
+		assert extension.upper() in ["PNG", "JPG", "JPEG", "GIF", "WEBP", "SVG"], f"Unsupported image format: '{extension}'"
 		base64Header = f"data:image/{extension};base64,"
 		with open(src, "rb") as imageFile:
 			encoded = base64.b64encode(imageFile.read()).decode('ascii')
-		imageElement.set("src", base64Header + encoded)
+
+		imageElement["src"] = base64Header + encoded
 		print(f"Replaced image: '{src}'")
 
-def bakeInStylesheet(root, styleElement):
+def bakeInStylesheet(soup, styleElement, prettify=False):
 	src = unquote(styleElement.get("href"))
 	if os.path.isfile(src):
 		with open(src, "r") as stylesheetFile:
-			style = lxml.etree.Element("style")
-			#style.text = removeControlCharacters(stylesheetFile.read())
-			style.text = stylesheetFile.read()
-		root.append(style)
-		root.remove(styleElement)
+			cssSource = stylesheetFile.read()
+
+		if prettify:
+			cssSource = cssbeautifier.beautify(cssSource)
+		
+		newStyle = soup.new_tag("style")
+		newStyle.string = cssSource
+		styleElement.replaceWith(newStyle)
 		print(f"Replaced stylesheet: '{src}'")
 
-def bakeInScript(scriptElement):
-	if scriptElement.get("src") is not None:
-		src = unquote(scriptElement.get("src"))
-		if os.path.isfile(src):
-			with open(src, "r") as scriptFile:
-				#scriptElement.text = removeControlCharacters(scriptFile.read())
-				scriptElement.text = scriptFile.read()
-			scriptElement.attrib.pop("src", None)
-			print(f"Replaced script: '{src}'")
+def bakeInScript(soup, scriptElement, prettify=False):
+	src = unquote(scriptElement.get("src"))
+	if os.path.isfile(src):
+		with open(src, "r") as scriptFile:
+			# Create a new script element with the contents of the file as its contents
+			# we have to do this this way because we can't directly modify the inner html code of a beautiful soup element
 
-def recurse(root, keepScripts, keepStylesheets, keepImages):
-	for child in root.getchildren():
-		if child.tag == "img":
-			if keepImages and child.get("src") is not None:
-				bakeInImage(child)
-			else:
-				root.remove(child)
-				print("Removed image")
+			scriptSource = scriptFile.read()
+			if prettify:
+				scriptSource = jsbeautifier.beautify(scriptSource)
 
-		elif child.tag == "link" and child.get("rel") == "stylesheet":
-			if keepStylesheets:
-				bakeInStylesheet(root, child)
-			else:
-				root.remove(child)
-				print("Removed stylesheet")
+			newScript = BeautifulSoup(f"<script>{scriptSource}</script>", "html.parser").script
 
-		elif child.tag == "script":
-			if keepScripts:
-				bakeInScript(child)
-			else:
-				root.remove(child)
-				print("Removed script")
+	# Copy all the attributes from the old script element to the new one
+	for attrKey, attrValue in scriptElement.attrs.items():
+		if attrKey != "src": # Don't copy the src attribute
+			newScript[attrKey] = attrValue
 
-		else: # Other tag
-			recurse(child, keepScripts, keepStylesheets, keepImages)
+	scriptElement.replaceWith(newScript)
+	print(f"Replaced script: '{src}'")
+	
 
-
-def main(filePath, keepScripts=False, keepStylesheets=False, keepImages=False):
-	filePath = os.path.abspath(filePath)
-	os.chdir(os.path.dirname(filePath))
-	fileName = os.path.basename(filePath)
+def main(args):
+	fileName = os.path.basename(args.filePath)
+	filePathAbs = os.path.abspath(args.filePath)
+	os.chdir(os.path.dirname(filePathAbs))
 
 	with open(fileName, "r") as file:
-		html = lxml.html.parse(file)
+		soup = BeautifulSoup(file.read(), "html.parser")
 
-	recurse(html.getroot(), keepScripts, keepStylesheets, keepImages)
+	for script in soup.find_all("script", src=True):
+		if args.remove_scripts:
+			script.decompose()
+		else:
+			#bakeInScript(soup, script, prettify=args.prettify)
+			bakeInScript(soup, script, prettify=False)
 
-	html.write("unified_page.html", encoding="utf8")
+	for link in soup.find_all("link", rel="stylesheet"):
+		if args.remove_stylesheets:
+			link.decompose()
+		else:
+			bakeInStylesheet(soup, link, prettify=args.prettify)
+		
+	if args.bake_css_sources:
+		for style in soup.find_all("style"):
+			if style.string is not None:
+				style.string = bakeInCSSSources(style.string, baseUrl=args.base_url)
+	
+	for img in soup.find_all("img", src=True):
+		if args.remove_images:
+			img.decompose()
+		else:
+			bakeInImage(img)
+
+	# Clean up the parse tree by consolidating adjacent strings
+	soup.smooth()
+
+	with open("unified_page.html", "w") as unifiedPage:
+		formatter = "html5" if args.prettify else "minimal"
+		unifiedPage.write(soup.prettify(formatter=formatter))
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
@@ -91,7 +169,11 @@ if __name__ == "__main__":
 	parser.add_argument("-s", "--remove-scripts", action="store_true", help="Remove scripts")
 	parser.add_argument("-i", "--remove-images", action="store_true", help="Remove images")
 	parser.add_argument("-c", "--remove-stylesheets", action="store_true", help="Remove stylesheets")
+	parser.add_argument("-p", "--prettify", action="store_true", help="Prettify the html before saving")
+	parser.add_argument("-b", "--base-url", type=str, help="Base url to bake in relative urls")
+	parser.add_argument("--bake-css-sources", action="store_true", help="Bake in the sources in the css files")
 	args = parser.parse_args()
-	main(args.filePath, not args.remove_scripts, not args.remove_stylesheets, not args.remove_images)
+	main(args)
 	print("Unified the file successfully")
 
+# ToDo: Add support for urls in css files
