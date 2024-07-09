@@ -1,0 +1,86 @@
+#!/bin/python3
+import argparse
+import json
+import os.path
+import subprocess
+import tempfile
+from fractions import Fraction
+
+
+def extract_metadata(input_path: str) -> dict:
+    cmd = subprocess.run(
+        ["HandBrakeCLI", "-i", input_path, "--scan", "--json"],
+        capture_output=True,
+    )
+    if cmd.returncode != 0:
+        raise Exception("HandBrakeCLI failed")
+    output = cmd.stdout.decode("utf-8")
+    output = output.partition("JSON Title Set: ")[2]
+
+    return json.loads(output)["TitleList"][0]
+
+
+def create_ffmpeg_chapter_file(metadata: dict, output_path: str, format="ffmpeg"):
+    timebase = Fraction(1, 90000)  # This is the timebase used by HandBrakeCLI
+
+    # Order the chapters by start ticks
+    metadata["ChapterList"] = sorted(
+        metadata["ChapterList"], key=lambda x: x["Duration"]["Ticks"]
+    )
+
+    # Calculate the end ticks for each chapter
+    end_ticks = None
+    for i in range(len(metadata["ChapterList"]) - 1):
+        end_ticks = metadata["ChapterList"][i + 1]["Duration"]["Ticks"]
+        metadata["ChapterList"][i]["Duration"]["EndTicks"] = end_ticks
+    # metadata["ChapterList"][-1]["Duration"]["EndTicks"] = end_ticks
+
+    chapter_texts = []
+    for i, chapter in enumerate(metadata["ChapterList"]):
+        if format == "ffmpeg":
+            start_ticks = chapter["Duration"]["Ticks"]
+            end_ticks = chapter["Duration"].get("EndTicks", None)
+
+            chapter_text = "[CHAPTER]\n"
+            chapter_text += f"TIMEBASE={timebase}\n"
+            chapter_text += f"START={start_ticks}\n"
+            if end_ticks:
+                chapter_text += f"END={end_ticks}\n"
+            chapter_text += f"title={chapter['Name']}\n"
+        else:  # mkvmerge
+            start = f'{chapter["Duration"]["Hours"]:02}:{chapter["Duration"]["Minutes"]:02}:{chapter["Duration"]["Seconds"]:02}.000'
+            chapter_text = f"CHAPTER{i + 1}={start}\n"
+            chapter_text += f"CHAPTER{i + 1}NAME={chapter['Name']}\n"
+        chapter_texts.append(chapter_text)
+
+    print("\n".join(chapter_texts))
+    with open(output_path, "w") as f:
+        f.write("".join(chapter_texts))
+
+
+def create_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="HandBrakeCLI wrapper")
+    parser.add_argument("input", help="Input file")
+    parser.add_argument("output", help="Output file")
+    parser.add_argument(
+        "--format",
+        help="Output format",
+        choices=["ffmpeg", "mkvmerge"],
+        default="ffmpeg",
+    )
+    return parser
+
+
+if __name__ == "__main__":
+    parser = create_parser()
+    args = parser.parse_args()
+
+    if not (os.path.isfile(args.input) and os.access(args.input, os.R_OK)):
+        raise Exception("Input file does not exist or is not readable")
+
+    if not args.output:
+        args.output = tempfile.NamedTemporaryFile(suffix=".txt").name
+
+    metadata = extract_metadata(args.input)
+    create_ffmpeg_chapter_file(metadata, args.output, format=args.format)
+    print(args.output)

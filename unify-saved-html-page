@@ -115,13 +115,15 @@ def bakeInScript(soup, scriptElement, prettify=False):
 
 			newScript = BeautifulSoup(f"<script>{scriptSource}</script>", "html.parser").script
 
-	# Copy all the attributes from the old script element to the new one
-	for attrKey, attrValue in scriptElement.attrs.items():
-		if attrKey != "src": # Don't copy the src attribute
-			newScript[attrKey] = attrValue
+		# Copy all the attributes from the old script element to the new one
+		for attrKey, attrValue in scriptElement.attrs.items():
+			if attrKey != "src": # Don't copy the src attribute
+				newScript[attrKey] = attrValue
 
-	scriptElement.replaceWith(newScript)
-	print(f"Replaced script: '{src}'")
+		scriptElement.replaceWith(newScript)
+		print(f"Replaced script: '{src}'")
+	else:
+		print(f"Unable to find script: '{src}'")
 	
 
 def main(args):
@@ -129,13 +131,13 @@ def main(args):
 	filePathAbs = os.path.abspath(args.filePath)
 	os.chdir(os.path.dirname(filePathAbs))
 
-	with open(fileName, "r") as file:
+	with open(fileName, "rb") as file:
 		soup = BeautifulSoup(file.read(), "html.parser")
 
-	for script in soup.find_all("script", src=True):
+	for script in soup.find_all("script"):
 		if args.remove_scripts:
 			script.decompose()
-		else:
+		elif script.get("src") is not None:
 			#bakeInScript(soup, script, prettify=args.prettify)
 			bakeInScript(soup, script, prettify=False)
 
@@ -159,7 +161,7 @@ def main(args):
 	# Clean up the parse tree by consolidating adjacent strings
 	soup.smooth()
 
-	with open("unified_page.html", "w") as unifiedPage:
+	with open(args.output, "w") as unifiedPage:
 		formatter = "html5" if args.prettify else "minimal"
 		unifiedPage.write(soup.prettify(formatter=formatter))
 
@@ -171,6 +173,7 @@ if __name__ == "__main__":
 	parser.add_argument("-c", "--remove-stylesheets", action="store_true", help="Remove stylesheets")
 	parser.add_argument("-p", "--prettify", action="store_true", help="Prettify the html before saving")
 	parser.add_argument("-b", "--base-url", type=str, help="Base url to bake in relative urls")
+	parser.add_argument("-o", "--output", type=str, help="Output file name", default="unified_page.html")
 	parser.add_argument("--bake-css-sources", action="store_true", help="Bake in the sources in the css files")
 	args = parser.parse_args()
 	main(args)

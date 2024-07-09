@@ -1,24 +1,64 @@
-#!/bin/sh
+#!/bin/python3
 
-mkdir portrait landscape 2>/dev/null
-PORTRAITCOUNTER=0
-LANDSCAPECOUNTER=0
-for i in $@; do 
-	echo "$i"
-	DIMENSIONS=$(identify -format '%wx%h' "$i")
-	WIDTH=$(echo $DIMENSIONS | cut -f1 -d 'x')
-	HEIGHT=$(echo $DIMENSIONS | cut -f2 -d 'x')
-	if [ $WIDTH -lt $HEIGHT ]; then 
-		echo "$i --> portrait"
-		ln -s "../${i}" portrait
-		PORTRAITCOUNTER=$((PORTRAITCOUNTER+1))
-	else
-		echo "$i --> landscape"
-		ln -s "../${i}" landscape
-		LANDSCAPECOUNTER=$((LANDSCAPECOUNTER+1))
-	fi
-done
-echo "$PORTRAITCOUNTER portrait images"
-echo "$LANDSCAPECOUNTER landscape images"
+import os
+import sys
+from argparse import ArgumentParser
 
-rmdir portrait landscape 2>/dev/null
+from PIL import Image, UnidentifiedImageError
+
+
+def eprint(*args, **kwargs):
+    print(*args, file=sys.stderr, **kwargs)
+
+
+if __name__ == "__main__":
+    parser = ArgumentParser()
+    parser.add_argument(
+        "--portrait", default="landscape", help="Directory for portrait images"
+    )
+    parser.add_argument(
+        "--landscape", default="portrait", help="Directory for landscape images"
+    )
+    parser.add_argument(
+        "--skip",
+        help="Don't do anything, if the directory already exists",
+        action="store_true",
+    )
+    parser.add_argument("directory", help="Directory to organize images in")
+    args = parser.parse_args()
+
+    if not os.path.exists(args.directory):
+        eprint(f"Directory {args.directory} does not exist")
+        exit(1)
+
+    os.chdir(args.directory)
+
+    if args.skip and (os.path.exists(args.portrait) or os.path.exists(args.landscape)):
+        exit(0)
+
+    if not os.path.exists(args.landscape):
+        os.mkdir(args.landscape)
+    if not os.path.exists(args.portrait):
+        os.mkdir(args.portrait)
+
+    SUPPORTED_EXTENSIONS = set(["jpg", "jpeg", "png", "gif", "webp"])
+
+    for filename in os.listdir():
+        extension = filename.rpartition(".")[2].lower()
+        if os.path.isfile(filename) and extension in SUPPORTED_EXTENSIONS:
+            try:
+                height, width = Image.open(filename).size
+            except UnidentifiedImageError:
+                eprint(f"Cannot identify {filename}")
+                continue
+
+            if width <= height:
+                print(f"{filename} --> {args.portrait}")
+                os.symlink(
+                    os.path.join("..", filename), os.path.join(args.portrait, filename)
+                )
+            else:
+                print(f"{filename} --> {args.landscape}")
+                os.symlink(
+                    os.path.join("..", filename), os.path.join(args.landscape, filename)
+                )

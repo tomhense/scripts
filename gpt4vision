@@ -1,0 +1,112 @@
+#!/bin/python3
+import argparse
+import base64
+import os
+import shutil
+from subprocess import run
+
+import requests
+
+
+def check_valid_image(image_path):
+	# Use imagemagick to check if the file is a valid image if it is installed
+	if shutil.which("identify"):
+		with open(os.devnull, "w") as DEVNULL:
+			result = run(["identify", image_path], stdout=DEVNULL, stderr=DEVNULL)
+		return result.returncode == 0
+	else:
+		return True
+
+
+def b64_encode_image(image_path):
+	extension = image_path.rpartition(".")[-1].lower()
+	mime_type = f'image/{extension}'
+	with open(image_path, "rb") as f:
+		return f"data:{mime_type};base64," + base64.b64encode(f.read()).decode("utf-8")
+
+
+def make_request(prompt, image_paths, api_key, max_tokens=300, detail="auto"):
+	headers = {
+		'Content-Type': 'application/json',
+		'Authorization': f'Bearer {api_key}'
+	}
+
+	content = [{"type": "text", "text": prompt}]
+	for image_path in image_paths:
+		content.append({
+			"type": "image_url",
+			"image_url": {
+				"url": b64_encode_image(image_path),
+				"detail": detail
+			}
+		})
+
+	data = {
+		"model": "gpt-4-vision-preview",
+		"messages": [
+			{
+				"role": "user",
+				"content": content
+			}
+		],
+		"max_tokens": max_tokens
+	}
+
+	response = requests.post('https://api.openai.com/v1/chat/completions', headers=headers, json=data)
+
+	if response.status_code != 200:
+		print("Error: " + response.text)
+		exit(1)
+
+	return response.json()["choices"][0]["message"]["content"]
+
+
+# ToDo: Add support for temperature
+# ToDo: Make sure the image is not too big, this could be done by checking the file size of the image or better by checking the dimensions using PIL
+# ToDo: If the image is too big we could resize it using PIL automatically (in memory without saving it to disk) and then submit the resized image
+# ToDo: If we use PIL anyway we could also check if the image is valid using PIL instead of imagemagick (or do both as a fallback)
+
+# Screenshot ocr example command:
+# IMG="$(mktemp --suffix='.jpg')"; spectacle -brn -o "$IMG" >/dev/null 2>&1 && gpt4vision 'Please provide a compact latex sourcecode snippet for the content in the image' "$IMG"; env rm "$IMG"
+
+
+if __name__ == "__main__":
+	parser = argparse.ArgumentParser()
+	parser.add_argument("prompt", type=str, help="prompt to use")
+	parser.add_argument("file", type=str, nargs="+", help="one or multiple path(s) to image file(s)")
+	parser.add_argument("--output", "-o", type=str, default=None, help="output file or stdout if not specified")
+	parser.add_argument("--apikey", "-k", type=str, help="openai api key, if not specified will use OPENAI_API_KEY env var")
+	parser.add_argument("--max-tokens", "-m", type=int, default=300, help="max tokens to use")
+	parser.add_argument("--detail", "-d", type=str, choices=["low", "medium", "high", "auto"], default="auto", help="detail level to use for image")
+	args = parser.parse_args()
+
+	if args.apikey is None:
+		args.apikey = os.environ.get("OPENAI_API_KEY", None)
+	if args.apikey is None:
+		print("No api key specified, please specify one with --apikey or set OPENAI_API_KEY env var")
+		exit(1)
+
+	if len(args.file) == 0:
+		print("No image files specified")
+		exit(1)
+
+	ALLOWED_EXTENSIONS = frozenset(["jpg", "jpeg", "png"])
+	for image_path in args.file:
+		if not os.path.isfile(image_path):
+			print(f"File '{image_path}' does not exist")
+			exit(1)
+		if image_path.rpartition(".")[-1].lower() not in ALLOWED_EXTENSIONS:
+			print(f"Filename '{image_path}' does not have a valid image extension")
+			exit(1)
+		if not check_valid_image(image_path):
+			print(f"File '{image_path}' is not a valid image")
+			exit(1)
+
+	# Make the actual api request
+	analysis = make_request(args.prompt, args.file, args.apikey, max_tokens=args.max_tokens)
+
+	if args.output is None:
+		print(analysis)
+	else:
+		with open(args.output, "w") as f:
+			f.write(analysis)

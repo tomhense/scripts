@@ -1,0 +1,62 @@
+#!/bin/sh
+
+help() {
+	echo "Usage $(basename "$0") [-p] backup|restore backupFolder"
+	echo -e 'Options:'
+	echo -e 'backup	Backup docker volumes to backupFolder'
+	echo -e 'restore	Restore docker volumes from backupFolder'
+	echo -e 'backupFolder	Store/Restore docker volume backups to/from this folder'
+	echo -e '-h	Show this help'
+	echo -e '-p	Prune the volumes before backup'
+}
+
+# Parse cli arguments
+PRUNE_VOLUMES=0
+while getopts 'hp' OPT; do
+	case $OPT in
+		p)
+			PRUNE_VOLUMES=1;;
+		h)
+			help # Show help
+			exit 0;;
+		\?)
+			echo "Invalid option -$OPTARG" >&2
+			help
+			exit 1;;
+	esac
+done
+shift $((OPTIND-1))
+if [ $# -lt 2 ]; then
+	echo 'Missing arguments' >&2
+	exit 1
+fi
+CMD="$1"
+BACKUP_FOLDER="$2"
+
+if ! [ -d "$BACKUP_FOLDER" ] && ! mkdir "$BACKUP_FOLDER"; then
+	echo 'Invalid backup folder specified' >&2
+	exit 1
+fi
+
+
+if [ "$CMD" = 'backup' ]; then 
+	if [ $PRUNE_VOLUMES = 1 ]; then
+		docker volume prune -a -f || echo 'Failure pruning volumes' >&2 ; exit 1
+		echo 'Pruned volumes'
+	fi
+	for i in $(docker volume ls --format '{{.Name}}'); do
+		echo "Backing up volume $i"
+		docker run --rm -v "$i:/data" -v "$BACKUP_FOLDER:/backup" debian tar czvf "/backup/$i.tar.gz" /data
+	done
+	echo 'Backed up all volumes'
+elif [ "$CMD" = 'restore' ]; then 
+	for i in "$BACKUP_FOLDER"/*.tar.gz; do
+		i="$(basename "$i")"
+		echo "Restoring volume ${i%.tar.gz}"
+		docker run --rm -v "$BACKUP_FOLDER:/backup" -v "${i%.tar.gz}:/data" debian bash -c "cd /data && tar xvf '/backup/$i' --strip 1"
+	done
+	echo 'Restored all volumes'
+else
+	echo 'Invalid command, only backup or restore are valid commands!' >&2
+	exit 1
+fi

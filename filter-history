@@ -1,0 +1,26 @@
+#!/bin/sh
+
+# Create temporary filter list
+TEMP_FILTER_LIST="$(mktemp)"
+
+# Populate pattern list
+#curl -s 'https://raw.githubusercontent.com/blocklistproject/Lists/master/porn.txt' | awk '{ print $2 }' >> "$TEMP_FILTER_LIST"
+
+# Filter zsh history
+SHELLNAME="$(basename "$SHELL")"
+if [ "$SHELLNAME" = 'zsh' ] && [ -f "$HOME/.zsh_history" ]; then
+	HIST_FILE="$HOME/.zsh_history"
+elif [ "$SHELLNAME" = 'bash' ] && [ -f "$HOME/.bash_history" ]; then
+	HIST_FILE="$HOME/.bash_history"
+else
+	echo 'Could not detect any valid shell' >&2
+	exit 1
+fi
+
+grep -ao --file="$TEMP_FILTER_LIST" "$HIST_FILE"
+
+#grep -v -f "$TEMP_FILTER_LIST" "$HIST_FILE" > "${HIST_FILE}.tmp" && mv "${HIST_FILE}.tmp" "$HIST_FILE"
+
+# Remove filter list
+#env rm "$TEMP_FILTER_LIST"
+

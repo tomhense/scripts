@@ -20,9 +20,9 @@ fi
 # Return light or dark depending on query response
 if [ "$returnval"  = '1' ]; then
 	echo 'dark'
-elif [ "$returnval" = '2' ]; then
+elif [ "$returnval" = '0' ] || [ "$returnval" = '2' ] ; then
 	echo 'light'
 else
-	echo 'Unknown query response' >&2
+	echo "Unknown query response (${returnval})" >&2
 	exit 1
 fi

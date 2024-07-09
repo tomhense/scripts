@@ -1,0 +1,21 @@
+#!/bin/zsh
+
+TEMPDIR="$(mktemp -d)"
+INPUTFILE="$(realpath "$1")"
+
+FAILURE() {
+	echo 'Something went wrong' >&2
+	env rm -dr "$TEMPDIR" # Cleanup tempdir
+	exit 1
+}
+
+echo $INPUTFILE
+echo "${INPUTFILE%.(rar cbr)}.zip"
+
+if [ -f "$INPUTFILE" ] && echo "$INPUTFILE" | grep -qP '\.(rar|cbr)$'; then
+	pushd "$TEMPDIR"
+	env unrar x "$INPUTFILE" "." || FAILURE
+	env zip -rj "${INPUTFILE%.(rar|cbr)}.zip" "." || FAILURE
+	popd
+	env rm -dr "$TEMPDIR" # Cleanup tempdir
+fi
