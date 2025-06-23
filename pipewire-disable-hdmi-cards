@@ -1,0 +1,8 @@
+#!/bin/sh
+CARDS_TO_DISABLE="$(pactl --format json list cards | jq -r '.[] | select((.properties["device.vendor.name"] | contains("NVIDIA")) and (.active_profile != "off")) | .name')"
+if [ "$CARDS_TO_DISABLE" != '' ]; then
+    while IFS= read -r CARD_NAME; do
+        echo "Disabling card $CARD_NAME"
+        pactl set-card-profile "$CARD_NAME" off
+    done < <(echo "$CARDS_TO_DISABLE")
+fi

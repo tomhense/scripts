@@ -1,8 +1,8 @@
 #!/bin/sh
-FIREFOX_DIR="$HOME/.mozilla/firefox"
+FIREFOX_DIR="$HOME/.librewolf"
 
 # Choose the firsting existing firefox binary from this list
-FIREFOX=${firefox:-firefox-developer-edition}
+FIREFOX=${firefox:-librewolf}
 
 # Prepend $FIREFOX_PROFILE for all entries that are not absolute paths
 # Second interal sed expression escapes the slashes from the path

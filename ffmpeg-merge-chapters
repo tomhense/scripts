@@ -1,0 +1,42 @@
+#!/usr/bin/python3
+
+import sys
+import subprocess
+
+
+def get_video_duration(file_path):
+    try:
+        result = subprocess.run(
+            ['ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+             '-of', 'default=noprint_wrappers=1:nokey=1', file_path],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        duration = float(result.stdout.strip())
+        return int(round(duration * 1000, 0))  # Convert to milliseconds
+    except Exception as e:
+        print(f'Error getting duration for {file_path}: {e}')
+        return 0
+
+
+def create_metadata(files, output_file):
+    with open(output_file, 'w') as f:
+        f.write(';FFMETADATA1\n\n')
+        total_duration = 0
+        for file in files:
+            duration = get_video_duration(file)
+            end_time = total_duration + duration
+            f.write(
+                f"[CHAPTER]\nTIMEBASE=1/1000\nSTART={
+                    total_duration +
+                    1}\nEND={end_time}\ntitle={file}\n\n")
+            total_duration += duration
+
+
+if __name__ == '__main__':
+    if len(sys.argv) < 3:
+        print('Usage: script.py file1.mp4 file2.mp4 [...] metadata.txt')
+        sys.exit(1)
+    video_files = sys.argv[1:-1]
+    metadata_file = sys.argv[-1]
+    create_metadata(video_files, metadata_file)
+    for file in video_files:
+        print(f"file \'{file}\'")

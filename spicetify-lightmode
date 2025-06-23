@@ -1,0 +1,126 @@
+#!/bin/python3
+
+import argparse
+import os
+import subprocess
+from configparser import ConfigParser
+from pathlib import Path
+
+
+def get_xdg_config_home() -> Path:
+    # Cross platform XDG compliant config location detection
+    XDG_CONFIG_HOME = os.getenv("XDG_CONFIG_HOME")
+    if XDG_CONFIG_HOME is None:
+        XDG_CONFIG_HOME = "~/.config"
+    return Path(os.path.expanduser(XDG_CONFIG_HOME))
+
+
+def pull_spicetify_themes(reset: bool = False) -> None:
+    # Fetch the spicetify-themes repo
+    spicetify_themes_path = get_xdg_config_home() / "spicetify" / "Themes"
+    assert spicetify_themes_path.exists(), "Spicetify Themes directory not found"
+    print("Fetching spicetify-themes repo...")
+
+    if reset:
+        # Reset the repo to avoid conflicts
+        result = subprocess.run(["git", "restore", "**/user.css"], cwd=spicetify_themes_path)
+        assert result.returncode == 0, "Failed to reset spicetify-themes repo"
+
+    # Pull the latest changes
+    result = subprocess.run(["git", "pull"], cwd=spicetify_themes_path)
+    assert result.returncode == 0, "Failed to pull spicetify-themes repo"
+
+
+def patch_color_config(color_config_path: Path) -> bool:
+    # Patch the color.ini file
+    assert color_config_path.exists(), f"color.ini not found in {color_config_path}"
+    color_config = ConfigParser()
+    color_config.read(color_config_path)
+    return True
+
+
+def patch_user_css(user_css_path: Path) -> bool:
+    # Patch the user.css file
+    assert user_css_path.exists(), f"user.css not found in {user_css_path}"
+
+    patch = "\n".join(
+        [
+            "/* ADD LIGHT MODE */",
+            "    body.lightmode {",
+            "    --spice-topbar: var(--spice-light-topbar);",
+            "    --spice-topbar-text: var(--spice-light-topbar-text);",
+            "    --spice-topbar-subtext: var(--spice-light-topbar-subtext);",
+            "    --spice-tab-active: var(--spice-light-tab-active);",
+            "    --spice-tab-active-text: var(--spice-light-tab-active-text);",
+            "    --spice-tab-hover: var(--spice-light-tab-hover);",
+            "    --spice-topbar-border: var(--spice-light-topbar-border);",
+            "    --spice-sidebar: var(--spice-light-sidebar);",
+            "    --spice-sidebar-text: var(--spice-light-sidebar-text);",
+            "    --spice-link-active-text: var(--spice-light-link-active-text);",
+            "    --spice-sidebar-border: var(--spice-light-sidebar-border);",
+            "    --spice-main: var(--spice-light-main);",
+            "    --spice-text: var(--spice-light-text);",
+            "    --spice-subtext: var(--spice-light-subtext);",
+            "    --spice-selected-row: var(--spice-light-selected-row);",
+            "    --spice-player: var(--spice-light-player);",
+            "    --spice-player-text: var(--spice-light-player-text);",
+            "    --spice-player-subtext: var(--spice-light-player-subtext);",
+            "    --spice-player-selected-row: var(--spice-light-player-selected-row);",
+            "    --spice-player-border: var(--spice-light-player-border);",
+            "    --spice-link-hover-text: var(--spice-light-link-hover-text);",
+            "    --spice-link-active: var(--spice-light-link-active);",
+            "    --spice-button: var(--spice-light-button);",
+            "    --spice-button-active: var(--spice-light-button-active);",
+            "    --spice-scrollbar-hover: var(--spice-light-scrollbar-hover);",
+            "    --spice-button-disabled: var(--spice-light-button-disabled);",
+            "    --spice-scrollbar: var(--spice-light-scrollbar);",
+            "    --spice-context-menu: var(--spice-light-context-menu);",
+            "    --spice-context-menu-text: var(--spice-light-context-menu-text);",
+            "    --spice-context-menu-hover: var(--spice-light-context-menu-hover);",
+            "    --spice-card: var(--spice-light-card);",
+            "    --spice-shadow: var(--spice-light-shadow);",
+            "    --spice-notification: var(--spice-light-notification);",
+            "    --spice-notification-error: var(--spice-light-notification-error);",
+            "    --spice-misc: var(--spice-light-misc);",
+            "    --spice-main-elevated: var(--spice-light-main-elevated);",
+            "    --spice-highlight-elevated: var(--spice-light-highlight-elevated);",
+            "    --spice-highlight: var(--spice-light-highlight);",
+            "}",
+        ]
+    )
+
+    if patch not in user_css_path.read_text():
+        with open(user_css_path, "a") as user_css:
+            user_css.write("\n" + patch)
+            return True
+    return False
+
+
+def patch_theme(theme_name: str) -> bool:
+    theme_path = get_xdg_config_home() / "spicetify" / "Themes" / theme_name
+    assert theme_path.exists(), f"Theme {theme_name} not found"
+    assert (theme_path / "color.ini").exists(), f"color.ini not found in {theme_name}"
+
+    if patch_user_css(theme_path / "user.css"):
+        print(f"Patched user.css for {theme_name}")
+        return True
+    else:
+        print(f"Failed to patch user.css for {theme_name}")
+        return False
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Spicetify Darkmode")
+    parser.add_argument("--reset", action="store_true", help="Reset the spicetify-themes repo")
+    parser.add_argument("--theme", help="Theme to patch")
+    parser.add_argument("action", choices=["pull", "patch"], help="Action to perform")
+    args = parser.parse_args()
+
+    if args.action == "pull":
+        pull_spicetify_themes(reset=args.reset)
+    elif args.action == "patch":
+        if args.theme:
+            patch_theme(args.theme)
+        else:
+            print("Theme name is required for patch action")
+            exit(1)

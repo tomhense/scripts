@@ -1,50 +1,72 @@
 #!/bin/python3
-import sys
 import subprocess as sp
+import sys
+from argparse import ArgumentParser
 
-dependenciesSet = set()
 
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
+
 def handlePackage(packageName):
-	result = sp.run(["pactree", "-u", packageName], capture_output=True)
-	if result.returncode == 0:
-		lines = result.stdout.decode().split("\n")
-		for packageName in lines:
-			dependenciesSet.add(packageName)
-	else:
-		eprint("ERROR: Error handling package", packageName)
+    result = sp.run(["pactree", "-u", packageName], capture_output=True)
+    if result.returncode == 0:
+        lines = result.stdout.decode().split("\n")
+        dependencies = set(lines)
+        dependencies.remove("")  # remove empty line
+        return dependencies  # return dependencies
+    else:
+        eprint("ERROR: Error handling package", packageName)
+        return set()  # return empty set
+
 
 def handleGroup(groupName):
-	result = sp.run(["pacman", "-Qg", groupName], capture_output=True)
-	if result.returncode == 0:
-		lines = result.stdout.decode().split("\n")
-		for line in lines:
-			packageName = line.partition(" ")[2]
-			handlePackage(packageName)
-	else:
-		eprint("ERROR: Error handling group", groupName)
+    result = sp.run(["pacman", "-Sg", groupName], capture_output=True)
+    if result.returncode == 0:
+        lines = result.stdout.decode().split("\n")
+        for line in lines:
+            packageName = line.partition(" ")[2]
+            return handlePackage(packageName)
+    else:
+        eprint("ERROR: Error handling group", groupName)
+        return set()  # return empty set
+
 
 def manualInstalledPackages():
-	result = sp.run(["pacman", "-Qe"], capture_output=True)
-	if result.returncode == 0:
-		lines = result.stdout.decode().split("\n")
-		packageNames = set()
-		for line in lines:
-			packageNames.add(line.partition(" ")[0])
-		return packageNames
-	else:
-		eprint("ERROR: Error listing manually installed packages")
-		return None
+    result = sp.run(["pacman", "-Qe"], capture_output=True)
+    if result.returncode == 0:
+        lines = result.stdout.decode().split("\n")
+        packageNames = set()
+        for line in lines:
+            packageNames.add(line.partition(" ")[0])
+        packages = set(packageNames)
+        return packages
+    else:
+        eprint("ERROR: Error listing manually installed packages")
+        exit(1)  # It makes not sense to continue if we can't list manually installed packages
+
+
+def main():
+    parser = ArgumentParser(description="List manually installed packages")
+    parser.add_argument("--group", "-g", nargs="*", help="List manually installed packages from group")
+    parser.add_argument("--exclude", "-e", nargs="*", help="Exclude manually installed packages from group")
+    args = parser.parse_args()
+
+    manualPackages = manualInstalledPackages()
+
+    if args.group:
+        for groupName in args.group:
+            manualPackages -= handleGroup(groupName)
+
+    if args.exclude:
+        for groupName in args.exclude:
+            manualPackages -= handlePackage(groupName)
+
+    manualPackagesList = list(manualPackages)
+    manualPackagesList.sort()
+    for packageName in manualPackages:
+        print(packageName)
+
 
 if __name__ == "__main__":
-	groups = ["base-devel"]
-
-	for groupName in groups:
-		handleGroup(groupName)
-
-	selfInstalledPackages = list(manualInstalledPackages().difference(dependenciesSet))
-	selfInstalledPackages.sort()
-	for selfInstalledPackage in selfInstalledPackages:
-		print(selfInstalledPackage)
+    main()
