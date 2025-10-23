@@ -1,0 +1,79 @@
+#!/usr/bin/env python3
+
+import argparse
+import urllib.request
+import json
+import tempfile
+import difflib
+import sys
+import os
+
+REPO = "immich-app/immich"
+FILENAME = "docker-compose.yml"
+GITHUB_API = f"https://api.github.com/repos/{REPO}/releases?per_page=20"
+
+def get_releases():
+    with urllib.request.urlopen(GITHUB_API) as resp:
+        text = resp.read()
+    releases = json.loads(text)
+    # Filter only non-draft, non-prerelease
+    published = [r for r in releases if not r.get("prerelease") and not r.get("draft")]
+    return published
+
+def get_asset_url(release, filename):
+    assets = release.get("assets", [])
+    for asset in assets:
+        if asset.get("name") == filename:
+            return asset.get("browser_download_url")
+    return None
+
+def download_file(url):
+    if not url:
+        return None
+    with urllib.request.urlopen(url) as resp:
+        return resp.read().decode('utf-8')
+
+def main():
+    parser = argparse.ArgumentParser(description=
+        "Diff an asset file between two sequential GitHub releases by offset.")
+    parser.add_argument('release_offset', type=int, nargs='?', default=0,
+                        help="Which pair to compare: 0=latest vs previous, 1=previous vs before, ...")
+    args = parser.parse_args()
+
+    releases = get_releases()
+    idx = args.release_offset
+
+    if len(releases) < idx + 2:
+        print(f"Not enough releases found to compare offset={idx}.")
+        sys.exit(1)
+
+    rel_a, rel_b = releases[idx+1], releases[idx]
+    tag_a, tag_b = rel_a.get("tag_name"), rel_b.get("tag_name")
+
+    url_a = get_asset_url(rel_a, FILENAME)
+    url_b = get_asset_url(rel_b, FILENAME)
+
+    if not url_a or not url_b:
+        print(
+            f"Could not find '{FILENAME}' in one of these releases:\n"
+            f"- {tag_a}: {url_a}\n"
+            f"- {tag_b}: {url_b}\n"
+        )
+        sys.exit(2)
+
+    text_a = download_file(url_a)
+    text_b = download_file(url_b)
+
+    lines_a = text_a.splitlines(keepends=True)
+    lines_b = text_b.splitlines(keepends=True)
+
+    print(f"Diffing {FILENAME} between '{tag_a}' and '{tag_b}':\n")
+    diff = difflib.unified_diff(
+        lines_a, lines_b,
+        fromfile=f"{FILENAME}-{tag_a}",
+        tofile=f"{FILENAME}-{tag_b}",
+    )
+    sys.stdout.writelines(diff)
+
+if __name__ == "__main__":
+    main()
