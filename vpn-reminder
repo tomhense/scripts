@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+if [ $# -ne 1 ]; then
+	echo "Usage: $(basename "$0") VPNNAME" >&2
+	exit 1
+fi
+
+VPN_NAME="$1"
+if nmcli -t connection show --active | grep -q -i "^${VPN_NAME}:.*:vpn:.*$"; then
+	echo "You are still connected to ${VPN_NAME} vpn"
+	notify-send -a 'Network Manager' -u low "VPN Reminder" "You are still connected to ${VPN_NAME} vpn"
+else 
+	echo "You are currently not connected to ${VPN_NAME} vpn"
+fi
