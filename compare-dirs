@@ -1,0 +1,139 @@
+#!/usr/bin/env bash
+set -u
+
+# Compare files in two directories.
+# Usage: ./compare_dirs.sh [-s|--sort] DIR1 DIR2
+#   -s, --sort   Compare files after sorting lines
+
+RED=$'\033[31m'
+GREEN=$'\033[32m'
+YELLOW=$'\033[33m'
+BLUE=$'\033[34m'
+RESET=$'\033[0m'
+
+sort_mode=0
+
+usage() {
+	echo "Usage: $(basename "$0") [-s|--sort] DIR1 DIR2" >&2
+	exit 1
+}
+
+# Parse options
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		-s|--sort)
+			sort_mode=1
+			shift
+			;;
+		-h|--help)
+			usage
+			;;
+		--)
+			shift
+			break
+			;;
+		-*)
+			usage
+			;;
+		*)
+			break
+			;;
+	esac
+done
+
+if [[ $# -ne 2 ]]; then
+	usage
+fi
+
+dir1=$1
+dir2=$2
+
+if [[ ! -d "$dir1" ]]; then
+	echo "${RED}Error:${RESET} '$dir1' is not a directory" >&2
+	exit 1
+fi
+
+if [[ ! -d "$dir2" ]]; then
+	echo "${RED}Error:${RESET} '$dir2' is not a directory" >&2
+	exit 1
+fi
+
+declare -A seen
+same=0
+different=0
+missing=0
+
+# Collect relative file paths from both directories.
+while IFS= read -r -d '' f; do
+	rel=${f#"$dir1"/}
+	seen["$rel"]=1
+done < <(find "$dir1" -type f -print0)
+
+while IFS= read -r -d '' f; do
+	rel=${f#"$dir2"/}
+	seen["$rel"]=1
+done < <(find "$dir2" -type f -print0)
+
+compare_files() {
+	local f1=$1
+	local f2=$2
+
+	if [[ $sort_mode -eq 0 ]]; then
+		cmp -s "$f1" "$f2"
+		return $?
+	fi
+
+	# Compare sorted contents
+	diff -u <(sort "$f1") <(sort "$f2") >/dev/null
+}
+
+show_diff() {
+	local f1=$1
+	local f2=$2
+
+	if [[ $sort_mode -eq 0 ]]; then
+		diff -u "$f1" "$f2"
+	else
+		diff -u <(sort "$f1") <(sort "$f2")
+	fi
+}
+
+for rel in "${!seen[@]}"; do
+	file1="$dir1/$rel"
+	file2="$dir2/$rel"
+
+	if [[ ! -e "$file1" ]]; then
+		echo "${YELLOW}MISSING:${RESET} '$rel' exists in '$dir2' but not in '$dir1'"
+		((missing++))
+		continue
+	fi
+
+	if [[ ! -e "$file2" ]]; then
+		echo "${YELLOW}MISSING:${RESET} '$rel' exists in '$dir1' but not in '$dir2'"
+		((missing++))
+		continue
+	fi
+
+	if compare_files "$file1" "$file2"; then
+		if [[ $sort_mode -eq 1 ]]; then
+			echo "${GREEN}SAME (sorted):${RESET} '$rel'"
+		else
+			echo "${GREEN}SAME:${RESET} '$rel'"
+		fi
+		((same++))
+	else
+		if [[ $sort_mode -eq 1 ]]; then
+			echo "${RED}DIFFERENT (sorted):${RESET} '$rel'"
+		else
+			echo "${RED}DIFFERENT:${RESET} '$rel'"
+		fi
+		show_diff "$file1" "$file2"
+		((different++))
+	fi
+done
+
+echo
+echo "${BLUE}Summary:${RESET}"
+echo "  Same:      $same"
+echo "  Different: $different"
+echo "  Missing:   $missing"

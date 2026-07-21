@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+## Remove any not installed packages directories from cache
+installed_packages=$(yay -Qq)
+find /home/$USER/.cache/yay -mindepth 1 -maxdepth 1 -type d | while read dir; do
+    echo "$installed_packages" | grep -qx $(basename "$dir") || { echo "Removing: $dir"; rm -rf "$dir"; }
+done
+
+## Remove all compiled packages from cache
+find /home/$USER/.cache/yay/ -type f \( -iname "*.zst" -o -iname "*.gz" \) -delete
