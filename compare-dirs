@@ -1,139 +1,251 @@
-#!/usr/bin/env bash
-set -u
+#!/usr/bin/env python3
+import argparse
+import difflib
+import fnmatch
+import os
+import re
+import sys
+from pathlib import Path
 
-# Compare files in two directories.
-# Usage: ./compare_dirs.sh [-s|--sort] DIR1 DIR2
-#   -s, --sort   Compare files after sorting lines
+RED = "\033[31m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+BLUE = "\033[34m"
+CYAN = "\033[36m"
+RESET = "\033[0m"
 
-RED=$'\033[31m'
-GREEN=$'\033[32m'
-YELLOW=$'\033[33m'
-BLUE=$'\033[34m'
-RESET=$'\033[0m'
 
-sort_mode=0
+TEXT_BYTES_SAMPLE = 8192
 
-usage() {
-	echo "Usage: $(basename "$0") [-s|--sort] DIR1 DIR2" >&2
-	exit 1
-}
 
-# Parse options
-while [[ $# -gt 0 ]]; do
-	case "$1" in
-		-s|--sort)
-			sort_mode=1
-			shift
-			;;
-		-h|--help)
-			usage
-			;;
-		--)
-			shift
-			break
-			;;
-		-*)
-			usage
-			;;
-		*)
-			break
-			;;
-	esac
-done
+def is_text_file(path: Path) -> bool:
+	try:
+		with path.open("rb") as f:
+			chunk = f.read(TEXT_BYTES_SAMPLE)
+	except OSError:
+		return False
 
-if [[ $# -ne 2 ]]; then
-	usage
-fi
+	if b"\x00" in chunk:
+		return False
 
-dir1=$1
-dir2=$2
+	if not chunk:
+		return True
 
-if [[ ! -d "$dir1" ]]; then
-	echo "${RED}Error:${RESET} '$dir1' is not a directory" >&2
-	exit 1
-fi
+	try:
+		chunk.decode("utf-8")
+		return True
+	except UnicodeDecodeError:
+		return False
 
-if [[ ! -d "$dir2" ]]; then
-	echo "${RED}Error:${RESET} '$dir2' is not a directory" >&2
-	exit 1
-fi
 
-declare -A seen
-same=0
-different=0
-missing=0
+def grep_like_match(path_str: str, patterns: list[str]) -> bool:
+	return any(fnmatch.fnmatch(path_str, pat) for pat in patterns)
 
-# Collect relative file paths from both directories.
-while IFS= read -r -d '' f; do
-	rel=${f#"$dir1"/}
-	seen["$rel"]=1
-done < <(find "$dir1" -type f -print0)
 
-while IFS= read -r -d '' f; do
-	rel=${f#"$dir2"/}
-	seen["$rel"]=1
-done < <(find "$dir2" -type f -print0)
+def should_include(rel_path: str, include_patterns: list[str], exclude_patterns: list[str]) -> bool:
+	if include_patterns and not grep_like_match(rel_path, include_patterns):
+		return False
+	if exclude_patterns and grep_like_match(rel_path, exclude_patterns):
+		return False
+	return True
 
-compare_files() {
-	local f1=$1
-	local f2=$2
 
-	if [[ $sort_mode -eq 0 ]]; then
-		cmp -s "$f1" "$f2"
-		return $?
-	fi
+def collect_files(root: Path, include_patterns: list[str], exclude_patterns: list[str], all_files: bool) -> set[str]:
+	result = set()
 
-	# Compare sorted contents
-	diff -u <(sort "$f1") <(sort "$f2") >/dev/null
-}
+	for dirpath, _, filenames in os.walk(root):
+		for name in filenames:
+			full = Path(dirpath) / name
+			rel = full.relative_to(root).as_posix()
 
-show_diff() {
-	local f1=$1
-	local f2=$2
+			if not should_include(rel, include_patterns, exclude_patterns):
+				continue
 
-	if [[ $sort_mode -eq 0 ]]; then
-		diff -u "$f1" "$f2"
-	else
-		diff -u <(sort "$f1") <(sort "$f2")
-	fi
-}
+			if not all_files and not is_text_file(full):
+				continue
 
-for rel in "${!seen[@]}"; do
-	file1="$dir1/$rel"
-	file2="$dir2/$rel"
+			result.add(rel)
 
-	if [[ ! -e "$file1" ]]; then
-		echo "${YELLOW}MISSING:${RESET} '$rel' exists in '$dir2' but not in '$dir1'"
-		((missing++))
-		continue
-	fi
+	return result
 
-	if [[ ! -e "$file2" ]]; then
-		echo "${YELLOW}MISSING:${RESET} '$rel' exists in '$dir1' but not in '$dir2'"
-		((missing++))
-		continue
-	fi
 
-	if compare_files "$file1" "$file2"; then
-		if [[ $sort_mode -eq 1 ]]; then
-			echo "${GREEN}SAME (sorted):${RESET} '$rel'"
-		else
-			echo "${GREEN}SAME:${RESET} '$rel'"
-		fi
-		((same++))
-	else
-		if [[ $sort_mode -eq 1 ]]; then
-			echo "${RED}DIFFERENT (sorted):${RESET} '$rel'"
-		else
-			echo "${RED}DIFFERENT:${RESET} '$rel'"
-		fi
-		show_diff "$file1" "$file2"
-		((different++))
-	fi
-done
+def read_text_lines(path: Path, sort_mode: bool) -> list[str]:
+	with path.open("r", encoding="utf-8", errors="replace", newline="") as f:
+		lines = f.readlines()
+	if sort_mode:
+		lines = sorted(lines)
+	return lines
 
-echo
-echo "${BLUE}Summary:${RESET}"
-echo "  Same:      $same"
-echo "  Different: $different"
-echo "  Missing:   $missing"
+
+def compare_files(file1: Path, file2: Path, sort_mode: bool) -> bool:
+	if not sort_mode:
+		try:
+			return file1.read_bytes() == file2.read_bytes()
+		except OSError:
+			return False
+
+	lines1 = read_text_lines(file1, sort_mode=True)
+	lines2 = read_text_lines(file2, sort_mode=True)
+	return lines1 == lines2
+
+
+def filter_diff_lines(diff_lines: list[str], exclude_re: re.Pattern | None) -> list[str]:
+	if exclude_re is None:
+		return diff_lines
+
+	filtered = []
+	for line in diff_lines:
+		if line.startswith(("---", "+++", "@@")):
+			filtered.append(line)
+			continue
+
+		if line.startswith(("+", "-", " ")):
+			content = line[1:]
+			if exclude_re.search(content):
+				continue
+
+		filtered.append(line)
+
+	return filtered
+
+
+def colorize_diff_line(line: str) -> str:
+	if line.startswith("---"):
+		return f"{BLUE}{line}{RESET}"
+	if line.startswith("+++"):
+		return f"{CYAN}{line}{RESET}"
+	if line.startswith("@@"):
+		return f"{YELLOW}{line}{RESET}"
+	if line.startswith("-") and not line.startswith("---"):
+		return f"{RED}{line}{RESET}"
+	if line.startswith("+") and not line.startswith("+++"):
+		return f"{GREEN}{line}{RESET}"
+	return line
+
+
+def show_diff(file1: Path, file2: Path, rel: str, sort_mode: bool, exclude_re: re.Pattern | None) -> None:
+	lines1 = read_text_lines(file1, sort_mode=sort_mode)
+	lines2 = read_text_lines(file2, sort_mode=sort_mode)
+
+	fromfile = str(file1)
+	tofile = str(file2)
+
+	diff = list(
+		difflib.unified_diff(
+			lines1,
+			lines2,
+			fromfile=fromfile,
+			tofile=tofile,
+			lineterm=""
+		)
+	)
+
+	diff = filter_diff_lines(diff, exclude_re)
+
+	for line in diff:
+		sys.stdout.write(colorize_diff_line(line))
+		if not line.endswith("\n"):
+			sys.stdout.write("\n")
+
+
+def parse_args() -> argparse.Namespace:
+	parser = argparse.ArgumentParser(
+		description="Compare files in two directories."
+	)
+	parser.add_argument(
+		"-s", "--sort",
+		action="store_true",
+		help="Compare files after sorting lines"
+	)
+	parser.add_argument(
+		"--include",
+		action="append",
+		default=[],
+		metavar="GLOB",
+		help="Only include files matching GLOB (can be given multiple times)"
+	)
+	parser.add_argument(
+		"--exclude",
+		action="append",
+		default=[],
+		metavar="GLOB",
+		help="Exclude files matching GLOB (can be given multiple times)"
+	)
+	parser.add_argument(
+		"--exclude-diff-regex",
+		metavar="REGEX",
+		help="Exclude diff content lines whose text matches REGEX"
+	)
+	parser.add_argument(
+		"-a", "--all-files",
+		action="store_true",
+		help="Process all files, not just text files"
+	)
+	parser.add_argument("dir1")
+	parser.add_argument("dir2")
+	return parser.parse_args()
+
+
+def main() -> int:
+	args = parse_args()
+
+	dir1 = Path(args.dir1)
+	dir2 = Path(args.dir2)
+
+	if not dir1.is_dir():
+		print(f"{RED}Error:{RESET} '{dir1}' is not a directory", file=sys.stderr)
+		return 1
+
+	if not dir2.is_dir():
+		print(f"{RED}Error:{RESET} '{dir2}' is not a directory", file=sys.stderr)
+		return 1
+
+	exclude_re = None
+	if args.exclude_diff_regex:
+		try:
+			exclude_re = re.compile(args.exclude_diff_regex)
+		except re.error as e:
+			print(f"{RED}Error:{RESET} invalid regex for --exclude-diff-regex: {e}", file=sys.stderr)
+			return 1
+
+	files1 = collect_files(dir1, args.include, args.exclude, args.all_files)
+	files2 = collect_files(dir2, args.include, args.exclude, args.all_files)
+	seen = files1 | files2
+
+	same = 0
+	different = 0
+	missing = 0
+
+	for rel in sorted(seen):
+		file1 = dir1 / rel
+		file2 = dir2 / rel
+
+		if not file1.exists():
+			print(f"{YELLOW}MISSING:{RESET} '{rel}' exists in '{dir2}' but not in '{dir1}'")
+			missing += 1
+			continue
+
+		if not file2.exists():
+			print(f"{YELLOW}MISSING:{RESET} '{rel}' exists in '{dir1}' but not in '{dir2}'")
+			missing += 1
+			continue
+
+		if compare_files(file1, file2, args.sort):
+			print(f"{GREEN}SAME:{RESET} '{rel}'")
+			same += 1
+		else:
+			print(f"{RED}DIFFERENT:{RESET} '{rel}'")
+			show_diff(file1, file2, rel, args.sort, exclude_re)
+			different += 1
+
+	print()
+	print(f"{BLUE}Summary:{RESET}")
+	print(f"  Same:      {same}")
+	print(f"  Different: {different}")
+	print(f"  Missing:   {missing}")
+
+	return 0
+
+
+if __name__ == "__main__":
+	sys.exit(main())
