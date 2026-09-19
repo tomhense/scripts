@@ -1,0 +1,49 @@
+#!/bin/bash
+# v.202311301520
+
+# gen vpn connections menu
+unset options i
+while IFS= read -r  f; do
+  options[i++]="$f"
+done < <(nmcli --fields TYPE,NAME  connection show  | grep vpn |  awk '{for (i=2; i<NF; i++) printf $i " "; print $NF}' )
+
+select opt in "${options[@]}" ; do
+  case $opt in
+    *)
+      NMCONN=$opt
+      break
+      ;;
+  esac
+done
+
+#  doublecheck
+if !  nmcli connection export "$NMCONN" > /dev/null 2>1; then
+    echo "ERROR. Export error."
+    exit 1
+fi
+
+CONF=$(nmcli connection export "$NMCONN")
+
+
+EMBEDINGS=(cert key ca tls-crypt tls-auth)
+# save all certs to tmp file
+TMPF=mktemp
+for x in ${EMBEDINGS[*]}; do
+    if echo "$CONF" | grep "^$x " > /dev/null 2>1 ; then
+        file=$(realpath $(echo "$CONF"| grep ^$x| cut -d " " -f 2 | sed  "s/'//g") )
+        if [ -e $file ]; then
+            echo "<$x>" >> $TMPF
+            cat "$file" >> $TMPF
+            echo "</$x>" >> $TMPF
+        fi
+    fi
+    grepstr="${grepstr}^$x |"
+done
+
+echo
+# remove lines with files from config
+echo "$CONF"| grep -vE  "${grepstr::-1}"
+# add saved certs
+cat $TMPF
+
+rm -f $TMPF
