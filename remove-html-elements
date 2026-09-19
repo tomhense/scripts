@@ -1,0 +1,141 @@
+#!/usr/bin/env python3
+
+import argparse
+import sys
+from pathlib import Path
+
+from lxml import etree, html
+from lxml.cssselect import CSSSelector
+
+
+def remove_elements(
+    input_file: Path,
+    output_file: Path,
+    css_selectors: list[str],
+) -> None:
+    """Remove elements matching any supplied CSS selector."""
+    parser = html.HTMLParser(
+        encoding="utf-8",
+        recover=True,
+        remove_comments=False,
+    )
+
+    try:
+        document = html.parse(str(input_file), parser)
+        root = document.getroot()
+
+        # Collect matching elements while avoiding duplicates caused by
+        # overlapping selectors.
+        selected_by_id = {}
+
+        for css_query in css_selectors:
+            selector = CSSSelector(css_query)
+
+            for element in selector(root):
+                selected_by_id[id(element)] = element
+
+    except Exception as exc:
+        raise RuntimeError(
+            f"Could not parse HTML or CSS selector: {exc}"
+        ) from exc
+
+    selected_elements = list(selected_by_id.values())
+    selected_ids = set(selected_by_id)
+
+    elements_to_remove = []
+
+    for element in selected_elements:
+        parent = element.getparent()
+
+        # The document root cannot be removed.
+        if parent is None:
+            continue
+
+        # If an ancestor is also selected, removing the ancestor removes
+        # this element too. Only report/remove the top-level element.
+        ancestor = parent
+        has_selected_ancestor = False
+
+        while ancestor is not None:
+            if id(ancestor) in selected_ids:
+                has_selected_ancestor = True
+                break
+            ancestor = ancestor.getparent()
+
+        if not has_selected_ancestor:
+            elements_to_remove.append(element)
+
+    # Print the original HTML source before removing the elements.
+    for index, element in enumerate(elements_to_remove, start=1):
+        source = etree.tostring(
+            element,
+            encoding="unicode",
+            method="html",
+            pretty_print=True,
+        )
+
+        print(f"\n--- Element {index} being removed ---")
+        print(source.rstrip())
+        print(f"--- End element {index} ---")
+
+    for element in elements_to_remove:
+        parent = element.getparent()
+        parent.remove(element)
+
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    document.write(
+        str(output_file),
+        encoding="utf-8",
+        method="html",
+        pretty_print=True,
+        doctype="<!DOCTYPE html>",
+    )
+
+    print(f"\nRemoved {len(elements_to_remove)} element(s).")
+    print(f"Saved output to: {output_file}")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Remove HTML elements matching any of one or more CSS selectors "
+            "and print the removed elements' HTML source."
+        )
+    )
+
+    parser.add_argument(
+        "input",
+        type=Path,
+        help="Input HTML file",
+    )
+    parser.add_argument(
+        "output",
+        type=Path,
+        help="Output HTML file",
+    )
+    parser.add_argument(
+        "selectors",
+        nargs="+",
+        help=(
+            "One or more CSS selectors. An element is removed if it "
+            "matches any selector."
+        ),
+    )
+
+    args = parser.parse_args()
+
+    if not args.input.is_file():
+        parser.error(f"Input file does not exist: {args.input}")
+
+    try:
+        remove_elements(args.input, args.output, args.selectors)
+    except RuntimeError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
