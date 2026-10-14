@@ -17,7 +17,7 @@ exec /usr/bin/bwrap \
 	--ro-bind /etc/bash_completion.d /etc/bash_completion.d \
 	--ro-bind /etc/ssl/certs /etc/ssl/certs \
 	--ro-bind /etc/ca-certificates /etc/ca-certificates \
-	--ro-bind /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt \
+	--ro-bind /etc/ca-certificates/extracted/tls-ca-bundle.pem /etc/ca-certificates/extracted/tls-ca-bundle.pem \
 	--ro-bind /etc/ld.so.cache /etc/ld.so.cache \
 	--ro-bind /etc/ld.so.conf /etc/ld.so.conf \
 	--ro-bind /etc/ld.so.conf.d /etc/ld.so.conf.d \
