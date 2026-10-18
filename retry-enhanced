@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""Run a command repeatedly, with optional retry and failure-burst limits."""
+
+import argparse
+from collections import deque
+import subprocess
+import sys
+import time
+
+
+def non_negative_float(value):
+	try:
+		number = float(value)
+	except ValueError as exc:
+		raise argparse.ArgumentTypeError("must be a number") from exc
+	if number < 0:
+		raise argparse.ArgumentTypeError("must be >= 0")
+	return number
+
+
+def positive_float(value):
+	number = non_negative_float(value)
+	if number == 0:
+		raise argparse.ArgumentTypeError("must be > 0")
+	return number
+
+
+def non_negative_int(value):
+	try:
+		number = int(value)
+	except ValueError as exc:
+		raise argparse.ArgumentTypeError("must be an integer") from exc
+	if number < 0:
+		raise argparse.ArgumentTypeError("must be >= 0")
+	return number
+
+
+def main():
+	parser = argparse.ArgumentParser(
+		description="Run a command, retrying failures."
+	)
+	parser.add_argument(
+		"--restart-delay",
+		type=non_negative_float,
+		default=None,
+		metavar="SECONDS",
+		help="delay between retries (default: no delay)",
+	)
+	parser.add_argument(
+		"--max-retries",
+		type=non_negative_int,
+		default=None,
+		metavar="N",
+		help="maximum retries after the initial run (default: unlimited)",
+	)
+	parser.add_argument(
+		"--burst-window",
+		type=positive_float,
+		default=None,
+		metavar="SECONDS",
+		help="rolling window for counting failures",
+	)
+	parser.add_argument(
+		"--burst-tries",
+		type=non_negative_int,
+		default=None,
+		metavar="N",
+		help="stop after N failures within the burst window",
+	)
+	parser.add_argument(
+		"--ignore-exit-statuses",
+		action="store_true",
+		help="treat every command exit, including status 0, as a failure",
+	)
+	parser.add_argument("command", help="command to execute")
+	parser.add_argument(
+		"command_args",
+		nargs=argparse.REMAINDER,
+		help="arguments passed to the command",
+	)
+
+	args = parser.parse_args()
+
+	if (args.burst_window is None) != (args.burst_tries is None):
+		parser.error("--burst-window and --burst-tries must be used together")
+	if args.burst_tries == 0:
+		parser.error("--burst-tries must be greater than zero")
+
+	if args.burst_tries is not None:
+		if (
+			args.restart_delay is not None
+			and args.restart_delay >= args.burst_window
+			and args.burst_tries > 1
+		):
+			parser.error(
+				"--restart-delay must be shorter than --burst-window "
+				"when --burst-tries is greater than 1"
+			)
+
+		if (
+			args.max_retries is not None
+			and args.max_retries + 1 < args.burst_tries
+		):
+			parser.error(
+				"--max-retries allows too few executions to reach "
+				"--burst-tries"
+			)
+
+	# argparse includes the optional "--" separator in REMAINDER.
+	command_args = args.command_args
+	if command_args[:1] == ["--"]:
+		command_args = command_args[1:]
+	command = [args.command, *command_args]
+
+	failures = deque()
+	retries_used = 0
+
+	while True:
+		try:
+			result = subprocess.run(command, check=False)
+			exit_code = result.returncode
+			if exit_code < 0:  # Shell-style status for signal termination.
+				exit_code = 128 + -exit_code
+		except OSError as exc:
+			print(f"retry: could not run {args.command!r}: {exc}", file=sys.stderr)
+			exit_code = 127 if isinstance(exc, FileNotFoundError) else 126
+
+		failed = exit_code != 0 or args.ignore_exit_statuses
+		if not failed:
+			return 0
+
+		# Ensure the helper returns failure if a zero exit was deliberately
+		# treated as a failure.
+		failure_exit_code = exit_code or 1
+
+		now = time.monotonic()
+		if args.burst_window is not None:
+			while failures and now - failures[0] >= args.burst_window:
+				failures.popleft()
+			failures.append(now)
+
+			if len(failures) >= args.burst_tries:
+				print(
+					f"retry: stopping after {len(failures)} failures "
+					f"within {args.burst_window:g} seconds",
+					file=sys.stderr,
+				)
+				return failure_exit_code
+
+		if args.max_retries is not None and retries_used >= args.max_retries:
+			return failure_exit_code
+
+		retries_used += 1
+		if args.restart_delay is not None:
+			try:
+				time.sleep(args.restart_delay)
+			except KeyboardInterrupt:
+				return 130
+
+
+if __name__ == "__main__":
+	sys.exit(main())
