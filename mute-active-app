@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+import json
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+
+def run(*args):
+	return subprocess.run(
+		args, check=True, capture_output=True, text=True
+	).stdout.strip()
+
+
+def is_active_or_descendant(candidate_pid, active_pid):
+	"""Return whether candidate_pid is active_pid or descends from it."""
+	try:
+		pid = int(candidate_pid)
+	except (TypeError, ValueError):
+		return False
+
+	seen = set()
+	while pid > 1 and pid not in seen:
+		if pid == active_pid:
+			return True
+		seen.add(pid)
+
+		try:
+			status = Path(f"/proc/{pid}/status").read_text()
+		except (OSError, ValueError):
+			return False
+
+		parent_pid = None
+		for line in status.splitlines():
+			if line.startswith("PPid:"):
+				try:
+					parent_pid = int(line.split(":", 1)[1].strip())
+				except ValueError:
+					return False
+				break
+
+		if parent_pid is None:
+			return False
+		pid = parent_pid
+
+	return False
+
+
+def main():
+	for command in ("kdotool", "pactl"):
+		if shutil.which(command) is None:
+			print(f"Error: required command not found: {command}", file=sys.stderr)
+			return 1
+
+	try:
+		active_pid = int(run("kdotool", "getactivewindow", "getwindowpid"))
+	except (ValueError, subprocess.CalledProcessError) as exc:
+		print(f"Error: could not determine the active window PID: {exc}", file=sys.stderr)
+		return 1
+
+	try:
+		sink_inputs = json.loads(run("pactl", "--format=json", "list", "sink-inputs"))
+		clients = json.loads(run("pactl", "--format=json", "list", "clients"))
+	except (json.JSONDecodeError, subprocess.CalledProcessError) as exc:
+		print(f"Error: could not read PulseAudio/PipeWire data: {exc}", file=sys.stderr)
+		return 1
+
+	clients_by_index = {str(client.get("index")): client for client in clients}
+	matched_indexes = set()
+
+	for sink_input in sink_inputs:
+		client = clients_by_index.get(str(sink_input.get("client")))
+		if client is None:
+			continue
+
+		properties = client.get("properties") or {}
+		candidate_pids = (
+			properties.get("application.process.id"),
+			properties.get("pipewire.sec.pid"),
+		)
+
+		if any(
+			is_active_or_descendant(pid, active_pid)
+			for pid in candidate_pids
+		):
+			matched_indexes.add(str(sink_input["index"]))
+
+	if not matched_indexes:
+		print(f"No sink input found for active window PID {active_pid}")
+		return 0
+
+	for sink_input_index in sorted(matched_indexes, key=int):
+		try:
+			run("pactl", "set-sink-input-mute", sink_input_index, "toggle")
+		except subprocess.CalledProcessError as exc:
+			print(
+				f"Error: failed to toggle sink input {sink_input_index}: "
+				f"{exc.stderr.strip()}",
+				file=sys.stderr,
+			)
+			return 1
+
+		print(f"Toggled mute for sink input {sink_input_index} (PID {active_pid})")
+
+	return 0
+
+
+if __name__ == "__main__":
+	sys.exit(main())
